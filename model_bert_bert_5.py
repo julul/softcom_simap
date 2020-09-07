@@ -19,14 +19,9 @@ transformers_logger.setLevel(logging.WARNING)
 
 
 ### Load data 
-#df = pd.read_csv('./input/merged_file_all.csv', sep='\t', encoding = 'utf-8')
-#df = df[['labels', 'project_details']].copy()
-mylist = []
-for chunk in pd.read_csv('./input/merged_file_all.csv', sep='\t', encoding = 'utf-8', chunksize=5000):
-    mylist.append(chunk)
-big_data = pd.concat(mylist, axis=0)
-del mylist
-df = big_data[['labels', 'project_details']].copy()
+
+df = pd.read_csv('./input/merged_file_all.csv', sep='\t', encoding = 'utf-8')
+df= df[['labels', 'project_details']].copy()
 ################## prepare data for text classification
 # Validation Set approach : take 90% of the data as the training set and 10 % as the test set. X is a dataframe with  the input variable
 # K fold cross-validation approach as well?
@@ -104,6 +99,11 @@ def get_results(classification_model_args,args_combination, train_df, eval_df):
             wrong_preds: List of InputExample objects corresponding to each incorrect prediction by the model
     '''
     result, _ ,_ = model.eval_model(eval_df= eval_df, **metrics)
+    for key,value in result.items():
+        if isinstance(value,(float,numpy.float64)):
+            result[key] = round(float(value),5) # convert to float in case it is of type numpy.float64 to be json compatible
+        elif isinstance(value,numpy.int64):
+            result[key] = int(value) # convert to int in case it is of type numpy.int64 to be json compatible
     return result
 
 
