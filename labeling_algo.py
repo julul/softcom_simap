@@ -4,25 +4,16 @@ import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.service import Service
-import os
 import numpy as np
 import json
 import re
 import ast
 from nltk.tokenize import word_tokenize
-
-import json
-import pandas as pd
-
-import os
-
-import numpy as np
 from scipy.stats import randint
 from io import StringIO
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_selection import chi2
 from IPython.display import display
-
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfTransformer
 from sklearn.naive_bayes import MultinomialNB
@@ -32,9 +23,7 @@ from sklearn.svm import LinearSVC
 from sklearn.model_selection import cross_val_score
 from sklearn.metrics import confusion_matrix
 from sklearn import metrics
-
 from langdetect import detect
-
 from nltk.corpus import stopwords 
 from nltk.tokenize import word_tokenize
 import nltk
@@ -47,9 +36,8 @@ import pickle
 from functools import reduce
 from operator import or_
 import unidecode
-
-
 import glob, os
+
 os.chdir('./projects_ID_NO')
 json_files = [file for file in glob.glob('*.json')]
 path = './projects_ID_NO/'
@@ -57,37 +45,9 @@ files = [path + f for f in json_files]
 # go back
 os.chdir('..')
 
-'''
-f = open("./stopwords/sw_it.txt","r")
-text = f.read()
-# convert string representation of list into list
-useless_it = ast.literal_eval(text)
 
-f = open("./stopwords/sw_de.txt","r")
-text = f.read()
-# convert string representation of list into list
-useless_de = ast.literal_eval(text)
-
-f = open("./stopwords/sw_fr.txt","r")
-text = f.read()
-# convert string representation of list into list
-useless_fr = ast.literal_eval(text)
-
-f = open("./stopwords/sw_en.txt","r")
-text = f.read()
-# convert string representation of list into list
-useless_en = ast.literal_eval(text)
-
-
-useless_all = useless_it + useless_de + useless_fr + useless_en
-# unaccent the words to make it language independent
-useless_all = [unidecode.unidecode(x) for x in useless_all]
-# drop duplicates
-useless_all = list(dict.fromkeys(useless_all))
-
-def hasNumbers(inputString):
-    return any(char.isdigit() for char in inputString)
-'''
+######### TODO:
+# adapt cleaning step
 
 mistakes = ['\n']
 actuals = [' ']
@@ -257,16 +217,16 @@ section3 = ['description detaillee des taches',
 
 
 
-
+'''
 ### TEST
 test_file1 = './projects_ID_NO/ID_195499_NO_1102961.json'  # should be labeled yes1 (yes-yes project)
 test_file2 = './projects_ID_NO/ID_195499_NO_1102947.json'  # should be labeled yes1 (yes-yes project)
 files1 = [files[0], test_file1, test_file2]
 files = files1
-
 '''
-Label project from file (path to project) as 'yes1','yes2','yes3','no2' or 'no1' and return its label
 
+#################  Label project as 'yes1','yes2','yes3','no2' or 'no1'
+'''
 yes1 = 'very positive',
 yes3 = 'rather positive',
 yes2= 'between yes1 and yes3',
@@ -350,6 +310,8 @@ for file in files:
                 if any(w == word for word in sec1):
                     p['label'] = 'yes1'
                     break
+            if delegation_criteria(cpv,sec3): # check the criteria for 'delegation'
+                p['label'] = 'yes1'
         if p['label'] == 'yes1':
             with open(file, 'w') as outfile:
                 json.dump(p, outfile)
@@ -384,6 +346,8 @@ for file in files:
                 if any(w == word for word in sec1):
                     p['label'] = 'yes1'
                     break
+            if delegation_criteria(cpv,sec3): # check the criteria for 'delegation'
+                p['label'] = 'yes1'
         if p['label'] == 'yes1':
             with open(file, 'w') as outfile:
                 json.dump(p, outfile)
@@ -424,28 +388,32 @@ for file in files:
     num_no2 = 0
 
 '''
-############# Classification ##################
 
-### work with the labeled projects
-dict_list = []
+### sum up the multiple labels ('label') into two different labels ('final_label') only
+### and save the final label into single project file
+### as well as save all the labeled projects together into a single csv file
+labeled_projects= []
 for file in files:
     # read file
     with open(file, 'r') as f:
         data=f.read()
         # parse file
         j_data = json.loads(data)
-        dict_list.append(j_data)
+    labeled_project = j_data
+    if labeled_project['label'] in ['yes1','yes2']:
+        labeled_project['final_label'] = '1'
+    else: # labeled_project['label'] in ['no1','no2','yes3']
+        labeled_project['final_label'] = '0'
+    # save final label into single project file 
+    with open(file, 'w') as outfile:
+        json.dump(labeled_project, outfile)
+    labeled_projects.append(labeled_project)
 
-# Convert list of dicts into dataframe and save it as csv
-df_dict = pd.DataFrame(dict_list)
-df_dict.to_csv('./input/merged_file.csv', sep='\t', encoding = 'utf-8')
+# Convert all labeled projects into dataframe and save it into single csv file
+df = pd.DataFrame(labeled_projects)
+df.to_csv('./input/merged_file.csv', sep='\t', encoding = 'utf-8')
 
-# loading data
-df = pd.read_csv('./input/merged_file.csv',sep='\t', encoding = 'utf-8')
-df.shape  # (# items (rows), # features (columns))
 
-# Create a new dataframe with two columns
-df1 = df[['label', 'project_details']].copy()
 
 
 
