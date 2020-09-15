@@ -1,17 +1,23 @@
+# https://towardsdatascience.com/fine-tuning-a-classifier-in-scikit-learn-66e048c21e65
+'''
+Here I won't use GridSearchCV for fine-tuning since it doesn't search and apply the best decision threshold.
+See e.g. https://stats.stackexchange.com/questions/390186/is-decision-threshold-a-hyperparameter-in-logistic-regression
+
+'''
+
+# https://stackoverflow.com/questions/28716241/controlling-the-threshold-in-logistic-regression-in-scikit-learn
+# https://towardsdatascience.com/fine-tuning-a-classifier-in-scikit-learn-66e048c21e65
 from bs4 import BeautifulSoup
 import re
 import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.service import Service
-import os, os.path
 import numpy as np
 import json
 import re
 import ast
 from nltk.tokenize import word_tokenize
-import json
-import pandas as pd
 from scipy.stats import randint
 #import seaborn as sns # used for plot interactive graph. 
 # https://stackoverflow.com/questions/3453188/matplotlib-display-plot-on-a-remote-machine
@@ -50,11 +56,16 @@ import fasttext
 from fasttext import load_model
 import io
 import time
-from sklearn.model_selection import KFold
+import glob, os
 import multiprocessing
 from functools import partial
 import itertools
 import multiprocessing
+from sklearn.preprocessing import FunctionTransformer
+from sklearn.pipeline import FeatureUnion, Pipeline
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+
+
 
 ################# definitions
 # The optimal cut-off would be where the true positive rate (tpr) is high
@@ -172,18 +183,108 @@ def get_predictions(threshold, prediction_scores):
             predictions.append(0)
     return predictions
 
-def get_results(name, params_wordembeddings, params_classification,X_test, y_test):
-    model_name = "comb_" + str(name)
-    # bin_path = "word_vectors/fasttext/" + model_name + ".bin" 
-    vec_path = "word_vectors/fasttext/" + model_name + ".vec" 
-    embeddings = fasttext.train_unsupervised(input='data.txt', **params_wordembeddings) 
-    # embeddings.save_model(bin_path)
-    # embeddings = load_model(bin_path)
-    ### convert from fasttext embeddings (would be saved as .bin) to .vec,
-    #   in order to use the embeddings .vec file as pretrainedVectors for fasttext text classification
-    from_bin_to_vec(embeddings, vec_path)
-    # dimension of embeddings has to fit with dimension of look-up table (embeddings) in classification model
-    params_classification["dim"] = embeddings.get_dimension()
+
+
+def perform( fun, **args ):
+    return fun( **args )
+'''
+def sayhello(fname, sname):
+    print('hello ' + fname + ' ' + sname)
+
+params = {'fname':'Julia', 'sname':'Eigenmann'}
+perform(sayhello, **params)
+'''
+def roc_model(tpr,fpr, thresholds):
+    i = np.arange(len(tpr)) # index for df
+    roc = pd.DataFrame({'fpr' : pd.Series(fpr, index=i),
+    'tpr' : pd.Series(tpr, index = i), 
+    '1-fpr': pd.Series(1-fpr, index=i), 
+    'tf': pd.Series(tpr - (1-fpr), index=i), 
+    'thresholds' : pd.Series(thresholds, index=i)})
+    roc.ix[(roc.tf-0).abs().argsort()[:1]]
+    return roc
+
+def find_optimal_cutoff(target, predicted):
+    """ Find the optimal probability cutoff point for a classification model
+        related to the event rate
+
+    Parameters
+    ----------
+    target: Matrix with dependent or target data, where rows are observations
+    predicted_ Matrix with predicted data, where rows are observations
+
+    Returns
+    -------
+    list type, with optimal cutoff value
+
+    """
+    fpr, tpr, threshold = metrics.roc_curve(target, predicted)
+    i = np.arange(len(tpr))
+    roc = pd.DataFrame({'tf': pd.Series(tpr-(1-fpr), index=i), 'threshold': pd.Series(threshold, index=i)})
+    roc_t = roc.ix[(roc.tf-0).abs().argsort()[:1]]
+    return list(roc_t['threshold'])
+
+
+# see https://stackoverflow.com/questions/47895434/how-to-make-pipeline-for-multiple-dataframe-columns
+def get_results(params_representation, params_classification, classifier):
+    get_text_data = FunctionTransformer(lambda x: x[['title','project_details']], validate=False)
+    get_numeric_data = FunctionTransformer(lambda x: x['CPV'], validate=False)
+    vectorizer = TfidfVectorizer(sublinear_tf=True, **params_representation) # representation contains min_df, max_df
+
+    pipe1 = Pipeline([('selector', get_text_data),('feature_extractor', vectorizer)])
+    pipe2 = Pipeline([('selector', get_numeric_data)])
+    
+    union = FeatureUnion([('text_features', pipe1), ('numeric_features', pipe2)])
+    X = union.fit_transform(df[['title','project_details','CPV']])
+    
+    '''
+    random_state parameter:
+    Use a new random number generator seeded by the given integer.
+    Using an int will produce the same results across different calls.
+    However, it may be worthwhile checking that your results are stable
+    across a number of different distinct random seeds.
+    Popular integer random seeds are 0 and 42.
+    '''
+    X_train, X_test, y_train, y_test = train_test_split(X, df['final_label'], test_size= 0.25, random_state=42)
+
+    ## TODO: #### number of yes == number of no in test set
+
+    ### apply hyperparameter and train model
+    classification_model = perform(classifier, **params_classification) # e.g. classifier == LogisticRegression
+    classification_model.fit(X_train, y_train)
+    
+    ### find the optimal classification threshold and predict class labels for on a set based on that threshold
+    
+    #generate class probabilites
+    try: 
+        probs = classification_model.predict_proba(X_test) # 2 elements will be returned in probs array,
+        y_scores = probs[:,1] # 2nd element gives probability for positive class
+    except:
+        y_scores = classification_model.decision_function(X_test) # for svc function
+    
+
+    # Find optimal cutoff point
+    # The optimal cut-off would be where the true positive rate (tpr) is high
+    # and the false positive rate (fpr) is low,
+    # and tpr (- fpr) is zero or near to zero
+    # Plot a ROC of tpr vs 1-fpr
+    
+    fpr, tpr, thresholds = metrics.roc_curve(y_test, y_scores) 
+
+    auc = metrics.auc(fpr, tpr)
+
+    roc = roc_model(tpr,fpr, thresholds)
+
+    # From the chart, the point where 'tpr' crosses '1-fpr' is the optimal cutoff point.
+    # We want to find the optimal probability cutoff point
+
+    # Find optimal probability threshold
+    # Note: probs[:,1] will have the probability of being positive label
+
+    opt_threshold = find_optimal_cutoff(y_test, y_scores)
+
+
+
     classification_model = fasttext.train_supervised(input=train_file, pretrainedVectors= vec_path, **params_classification)
     ### find and apply optimal (threshold) cutoff point
     # get scores, i.e. list of probabilities for being labeled positive on set X_test
@@ -208,21 +309,20 @@ def get_results(name, params_wordembeddings, params_classification,X_test, y_tes
     results['f1'] = round(f1,5)
     return results
 
-def get_combination_with_results(combination,all_keys, keys_wordembeddings, X_test, y_test):
-    params_wordembeddings = {}
+def get_combination_with_results(combination,all_keys, keys_representation, X_test, y_test):
+    params_representation = {}
     params_classification = {}
     d1={}
     d2={}
     d3={}
     d4={}
-    name = multiprocessing.current_process().name
     for a, b in zip(all_keys, combination):
-        if len(params_wordembeddings) != len(keys_wordembeddings):
-            params_wordembeddings[a] = b
+        if len(params_representation) != len(keys_representation):
+            params_representation[a] = b
         else:
             params_classification[a] = b
-    results = get_results(name,params_wordembeddings, params_classification, X_test, y_test) # returns dict of accuracy, precision, recall, auc, auprc
-    d1['params_wordembeddings'] = params_wordembeddings
+    results = get_results(params_representation, params_classification, X_test, y_test) # returns dict of accuracy, precision, recall, auc, auprc, f1
+    d1['params_representation'] = params_representation
     d2['params_classification'] = params_classification
     d3['results'] = results
     with io.open(results_path,'r+',encoding='utf8') as file:
@@ -237,30 +337,31 @@ def get_combination_with_results(combination,all_keys, keys_wordembeddings, X_te
         file.seek(0)  # not sure if needed 
         json.dump(results_object, file)
     print(results)
-    return [[params_wordembeddings,params_classification], results] 
+    return [[params_representation,params_classification], results] 
 
 
-def get_best_combination_with_results(param_grid_wordembeddings, param_grid_classification, score, X_test, y_test):
-    keys_wordembeddings = list(param_grid_wordembeddings.keys())
-    values_wordembeddings = list(param_grid_wordembeddings.values())
+def get_best_combination_with_results(param_grid_representation, param_grid_classification, score, X_test, y_test):
+    keys_representation = list(param_grid_representation.keys())
+    values_representation = list(param_grid_representation.values())
     keys_classification = list(param_grid_classification.keys())
     values_classification = list(param_grid_classification.values())
-    all_values = values_wordembeddings + values_classification
-    all_keys = keys_wordembeddings + keys_classification
+    all_values = values_representation + values_classification
+    all_keys = keys_representation + keys_classification
     all_combinations = list(itertools.product(*all_values))
     print("A\n")
-    num_available_cores = len(os.sched_getaffinity(0))
+    num_available_cores = len(os.sched_getaffinity(0)) - 2
     print("B\n")
     pool = multiprocessing.Pool(processes=num_available_cores)
     print("C\n")
-    f=partial(get_combination_with_results, all_keys=all_keys, keys_wordembeddings=keys_wordembeddings, X_test=X_test, y_test=y_test) 
+    f=partial(get_combination_with_results, all_keys=all_keys, keys_representation=keys_representation, X_test=X_test, y_test=y_test) 
     print("D\n")
-    list_of_combination_results = pool.map(f, all_combinations) #returns list of [[params_wordembeddings_dict,params_classification_dict], results_dict] 
+    list_of_combination_results = pool.map(f, all_combinations) #returns list of [[params_representation_dict,params_classification_dict], results_dict] 
     accuracy_scores = [results["accuracy"] for combination,results in list_of_combination_results]
     precision_scores = [results["precision"] for combination,results in list_of_combination_results]
     recall_scores = [results["recall"] for combination,results in list_of_combination_results]
     auc_scores = [results["auc"] for combination,results in list_of_combination_results] # auc scores
-    auprc_scores = [results["auprc"] for combination,results in list_of_combination_results] # auprc scores    
+    auprc_scores = [results["auprc"] for combination,results in list_of_combination_results] # auprc scores
+    f1_scores = [results["f1"] for combination,results in list_of_combination_results] # f1 scores 
     if score == "auprc":
         index_max = max(range(len(auprc_scores)), key=auprc_scores.__getitem__)
     elif score == "auc":
@@ -271,16 +372,19 @@ def get_best_combination_with_results(param_grid_wordembeddings, param_grid_clas
         index_max = max(range(len(precision_scores)), key=precision_scores.__getitem__)
     elif score == "accuracy":
         index_max = max(range(len(accuracy_scores)), key=accuracy_scores.__getitem__)
+    elif score == "f1":
+        index_max = max(range(len(f1_scores)), key=f1_scores.__getitem__)
     best_results = {}
     best_results["auprc"] = auprc_scores[index_max]
     best_results["auc"] = auc_scores[index_max]
     best_results["recall"] = recall_scores[index_max]
     best_results["precision"] = precision_scores[index_max]
     best_results["accuracy"] = accuracy_scores[index_max]
-    best_combination = list_of_combination_results[index_max][0]  # [params_wordembeddings,params_classification]
-    best_params_wordembeddings = best_combination[0]
+    best_results["f1"] = f1_scores[index_max]
+    best_combination = list_of_combination_results[index_max][0]  # [params_representation,params_classification]
+    best_params_representation = best_combination[0]
     best_params_classification = best_combination[1]
-    return best_params_wordembeddings, best_params_classification, best_results
+    return best_params_representation, best_params_classification, best_results
 
 def get_final_results(num_runs, params_wordembeddings, params_classification,X_test, y_test):
     metrics = ["accuracy","precision","recall","auc","auprc","f1"]
@@ -295,32 +399,19 @@ def get_final_results(num_runs, params_wordembeddings, params_classification,X_t
         final_results[metric] = sum(l)/len(l)
     return final_results  
 
-################# loading data
-df_all = pd.read_csv('./input/merged_file_all.csv', sep='\t', encoding = 'utf-8')
-df_all = df_all[['labels', 'project_details']].copy()
-df_all1 = df_all
-
-################# prepare data for fasttext text representation 
-## make data compatible for fasttext 
-## data.txt shape:
-# __label__0 "some text..."  (pre-processed project details)
-# __label__1 "some text..."
-# __label__0 "some text..."
-
-data_file = "data.txt"
-with io.open(data_file,'w',encoding='utf8') as f:
-    for i in range(0,len(df_all['labels'])):
-        f.write("__label__" + str(df_all['labels'][i]) + " " + df_all['project_details'][i] + "\n")
 
 
+################## loading data
+df = pd.read_csv('./input/merged_file_cleaned.csv', sep='\t', encoding = 'utf-8')
+df= df[['project_title', 'project_details','CPV','final_label']].copy() # columns are ['final_label', 'project_details','CPV','project_title']
 
-################## prepare data for fasttext text classification
-# Validation Set approach : take 75% of the data as the training set and 25 % as the test set. X is a dataframe with  the input variable
+################## split and prepare data for text classification
+# Validation Set approach : take 75% of the data as the training set and 25 % as the test set. X is a dataframe with the input variable
 # K fold cross-validation approach as well?
-length_to_split = int(len(df_all) * 0.75)
+length_to_split = int(len(df) * 0.75)
 
-X = df_all['project_details']
-y = df_all['labels']
+X = df['project_details']
+y = df['final_labels']
 
 ## Splitting the X and y into train and test datasets
 X_train, X_test = X[:length_to_split], X[length_to_split:]
@@ -358,152 +449,121 @@ X_test_old = X_test
 y_test = y_test_new
 X_test = X_test_new
 
-## make train and test set compatible for fastText
-# ...
-## train_set.txt shape:
-# __label__0 "some text..."  (pre-processed project details)
-# __label__1 "some text..."
-# __label__0 "some text..."
 
-train_file = "train_set.txt"  
-test_file = "test_set.txt"  
-with io.open(train_file,'w',encoding='utf8') as f:
-    for i in range(0,len(y_train)):
-        f.write("__label__" + str(y_train[i]) + " " + X_train[i] + "\n")
-
-with io.open(test_file,'w',encoding='utf8') as f:
-    for i in range(0,len(y_test)):
-        f.write("__label__" + str(y_test[i]) + " " + X_test[i] + "\n")
-
-
-
-################## Apply Fastext and fine tune the parameters for better results
+################## Apply TFIDF and different sklearn classification algorithms and fine tune the parameters for better results
 '''
 We consider two main steps for better results:
-- tuning parameters for text representation (word embeddings)
-- tuning parameters for text classification
+- tuning parameters for text representation (TF-IDF)
+- tuning parameters for text classification (sklearn class algos like random forest)
 The optimal classification threshold will also be applied
 '''
-####### tuning parameters for fasttext WORD EMBEDDINGS
+############### Tuning parameters for text REPRESENTATION TF-IDF  ##################
 '''
-    input             # training file path (required)
-    model             # unsupervised fasttext model {cbow, skipgram} [skipgram]
-    lr                # learning rate [0.05]
-    dim               # size of word vectors [100]
-    ws                # size of the context window [5]
-    epoch             # number of epochs [5]
-    minCount          # minimal number of word occurences [5]
-    minn              # min length of char ngram [3]
-    maxn              # max length of char ngram [6]
-    neg               # number of negatives sampled [5]
-    wordNgrams        # max length of word ngram [1]
-    loss              # loss function {ns, hs, softmax, ova} [ns]
-    bucket            # number of buckets [2000000]
-    thread            # number of threads [number of cpus]
-    lrUpdateRate      # change the rate of updates for the learning rate [100]
-    t                 # sampling threshold [0.0001]
-    verbose           # verbose [2]
-'''
-## Tutorial for word representations suggests to tune especially following parameters:
-# - dim = [100,300]
-# - minn and maxn
-# - epoch (if dataset is massive, better < 5)
-# - lr = [0.01,1.0] 
-model=['skipgram']
-loss=['hs']
-dim = [100,125,150,175,200,225,250,275,300]
-dim = [int(i) for i in dim]  # to make it JSON serializable
-minn = [2,3,4]
-minn = [int(i) for i in minn]
-maxn = [5,6,7]
-maxn = [int(i) for i in maxn]
-epoch = [1,2,3,4,5,6,7]
-epoch = [int(i) for i in epoch]
-lr = list(np.arange(10, 1000, 10))
-lr = [float(i/1000) for i in lr]  # to make it JSON serializable
-param_grid_wordembeddings= {"model":model,"loss":loss,"dim":dim, "minn":minn, "maxn":maxn, "epoch":epoch, "lr":lr}
+- For this step, you can use TF-IDF from sickit-learn. You need to try two options:
+a- apply TF-IDF on all projects regardless of the language 
+b- Divide the projects you have based on the language (group 1 french, group2 german…) 
+    and apply TF-IDF on each group seperately
 
-####### tuning parameters for fasttext CLASSIFICATION
-'''
-    input             # training file path (required)
-    lr                # learning rate [0.1]
-    dim               # size of word vectors [100]
-    ws                # size of the context window [5]
-    epoch             # number of epochs [5]
-    minCount          # minimal number of word occurences [1]
-    minCountLabel     # minimal number of label occurences [1]
-    minn              # min length of char ngram [0]
-    maxn              # max length of char ngram [0]
-    neg               # number of negatives sampled [5]
-    wordNgrams        # max length of word ngram [1]
-    loss              # loss function {ns, hs, softmax, ova} [softmax]
-    bucket            # number of buckets [2000000]
-    thread            # number of threads [number of cpus]
-    lrUpdateRate      # change the rate of updates for the learning rate [100]
-    t                 # sampling threshold [0.0001]
-    label             # label prefix ['__label__']
-    verbose           # verbose [2]
-    pretrainedVectors # pretrained word vectors (.vec file) for supervised learning []
-'''
-## Tutorial for text classification suggests to tune especially following parameters:
-# - epoch [5,50]
-# - lr = [0.01,1.0] 
-# - wordNgrams [1,5]
-# And pre-processing the data (already done in another step)
+TfidfVectorizer class can be initialized with the following parameters:
 
-# Dimension of look-up table in classification model has to be equal to dimension of embeddings,
-# get_best_parameter_value_with_results function handles this issue
-loss = ['hs']
-epoch = list(np.arange(5, 50, 5))
-epoch = [int(i) for i in epoch] # in order to avoid TypeError: Object of type 'int64' is not JSON serializable make int()
-lr = list(np.arange(10, 1000, 10))
-lr = [float(i/1000) for i in lr]  # to make it JSON serializable
-wordNgrams = [1,2,3,4,5]
-wordNgrams = [int(i) for i in wordNgrams]
-param_grid_classification= {"loss": loss,"epoch":epoch, "lr":lr, "wordNgrams":wordNgrams}
+min_df: remove the words from the vocabulary which have occurred in less than ‘min_df’ number of files.
+   (float in range [0.0, 1.0] or int (default=1))
+   When building the vocabulary ignore terms that have a document frequency strictly lower
+   than the given threshold. This value is also called cut-off in the literature.
+   If float, the parameter represents a proportion of documents, integer absolute counts.
+   This parameter is ignored if vocabulary is not None.
+max_df: remove the words from the vocabulary which have occurred in more than ‘max_df’ * total number of files in corpus.
+   (float in range [0.0, 1.0] or int (default=1.0))
+   When building the vocabulary ignore terms that have a document frequency strictly higher
+   than the given threshold (corpus-specific stop words). If float, the parameter represents
+   a proportion of documents, integer absolute counts. This parameter is ignored
+   if vocabulary is not None
+sublinear_tf: set to True to scale the term frequency in logarithmic scale.
+stop_words: remove the predefined stop words in 'english'.
+use_idf: weight factor must use inverse document frequency.
+ngram_range: (1, 2) to indicate that unigrams and bigrams will be considered.
+'''
+
+### maybe there is a way to remove words 'except of some special words' like 'upu' etc (see important words in labeling_algo.py).
+# check on https://github.com/scikit-learn/scikit-learn/blob/0fb307bf3/sklearn/feature_extraction/text.py#L1519 
+# def _limit_features in for loop 'for term, old_index in list(vocabulary.items()):'
+
+min_df = list(np.arange(1, 200, 1))
+min_df = [float(i/1000) for i in min_df]  # to make it JSON serializable
+max_df = list(np.arange(750, 1000, 1)) 
+max_df = [float(i/1000) for i in max_df]  # to make it JSON serializable
+param_grid_tfidf= {"min_df":min_df,"max_df":max_df}
+
+###############  Tuning parameters for text CLASSIFICATION with sklearn algorithms ############### 
+'''
+We compare following sklearn classification models
+- Random Forest
+- Linear Support Vector Machine
+- Multinomial Naive Bayes
+- Logistic Regression.
+'''
+
+#### Hyperparameter tuning Random Forest 
+n_estimators = [5, 10, 20, 30, 50]
+n_estimators = [int(i) for i in n_estimators] # to make it JSON serializable
+max_depth = [5, 8, 15, 25, 30]
+max_depth = [int(i) for i in max_depth]
+
+min_samples_split = [2, 5, 10, 15, 100]
+min_samples_split = [int(i) for i in min_samples_split]
+min_samples_leaf = [1, 2, 5, 10] 
+min_samples_leaf = [int(i) for i in min_samples_leaf]
+
+param_grid_rf = {'n_estimators':n_estimators, 'max_depth':max_depth,  
+              'min_samples_split':min_samples_split, 
+             'min_samples_leaf':min_samples_leaf}
+
+
+#### Hyperparameter tuning Logistic Regression
+
+penalty = ['l1', 'l2']
+C = [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000]
+C = [float(i) for i in C]
+class_weight = ['balanced']
+solver = ['liblinear', 'saga']
+param_grid_lg = {"C":C, "penalty":penalty, "class_weight":class_weight, 'solver':solver}
+
+
+
+#### Hyperparameter tuning Multinomial Naive Bayes
+
+alpha = np.linspace(0.5, 1.5, 6)
+alpha = [float(i) for i in alpha]
+fit_prior = [True, False]
+param_grid_mnb = {'alpha': alpha,'fit_prior': fit_prior}
+
+
+
+#### Hyperparameter tuning Linear Support Vector Machine
+
+penalty = ['l1', 'l2']
+C = [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000]
+C = [float(i) for i in C]
+class_weight = ['balanced']
+param_grid_lsvc  = {'C':C, 'penalty':penalty,"class_weight":class_weight}
+
+
+
+#### test for one particular sklearn classification algo
+
+param_grid_classification = param_grid_lg
 
 score = "auprc" 
-results_path = "./model_fasttext_fasttext/model_1/results.json"
+results_path = "./model_TFIDF_sklearn/model_1/results.json"
 results_object={}
-results_object['tune_param_wordembeddings'] = param_grid_wordembeddings
+results_object['tune_param_tfidf'] = param_grid_tfidf
 results_object['tune_param_classification'] = param_grid_classification
 results_object['score'] = score
 if os.path.exists(results_path):
     os.remove(results_path)
 with io.open(results_path,'w+',encoding='utf8') as file: # syntax error after if statement whyy??
     json.dump(results_object, file) # indendation error why????
-best_params_wordembeddings, best_params_classification, best_results = get_best_combination_with_results(param_grid_wordembeddings, param_grid_classification, score, X_test, y_test)
+best_params_tfidf, best_params_classification, best_results = get_best_combination_with_results(param_grid_tfidf, param_grid_classification, score, X_test, y_test)
 
 
-
-### change 'label' to 'final_label'
-
-
-
-best_combination = {}
-best_combination["best_params_wordembeddings"] = best_params_wordembeddings
-best_combination["best_params_classification"] = best_params_classification
-num_runs = 5
-final_results = get_final_results(num_runs, best_params_wordembeddings,best_params_classification,X_test, y_test) # apply best params and run num_runs times and take the average of the results as best result
-best_combination["best_results"] = final_results
-with io.open(results_path,'r+',encoding='utf8') as file:
-    results_object = json.load(file)
-    results_object["best_combination"] = best_combination
-    file.seek(0)  # not sure if needed 
-    json.dump(results_object, file)
-
-print("Best word embeddings parameter values according to " + score + ": \n")
-for param in best_params_wordembeddings:
-    best_value = best_params_wordembeddings[param]
-    print(param + " : " + str(best_value) + "\n")
-print("\n")
-print("Best classification parameter values according to " + score + ": \n")
-for param in best_params_classification:
-    best_value = best_params_classification[param]
-    print(param + " : " + str(best_value) + "\n")
-print("\n")
-print("Final evaluation results: \n")
-for metric in best_results:
-    result = best_results[metric]
-    print(metric + " : " + str(result) + "\n")
 

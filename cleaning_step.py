@@ -92,8 +92,8 @@ def clean_text(text):
     # any non-alphabetic chars like ',' or '\n' should be replaced by a space
     regex = re.compile('[^a-zA-Z]')
     text = regex.sub(' ', text)
-    # remove multiple spaces, single chars, and meaningless words
-    text = ' '.join([w for w in text.split() if len(w)>1] and w not in meaningless_words)
+    # remove multiple spaces, words smaller than 3 letters, and meaningless words
+    text = ' '.join([w for w in text.split() if len(w)>2 and w not in meaningless_words])
     return text
 
 

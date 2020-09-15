@@ -165,7 +165,7 @@ def isindict_word(text, d):
                     return True
     return False
 
-def delegation_criteria(cpv,sec3):
+def delegation_criteria(cpv_list,sec3):
     delegation_words = ['soumissionnaire', 'anbieter', 'special','spezial'] # nothing comparable detected in english or italian
     if any('extern' in word for word in sec3):
         indices = []
@@ -182,7 +182,7 @@ def delegation_criteria(cpv,sec3):
                     # check if the word containing 'extern' has neighbor words containing strings of delegation_words
                     if any(w in word for word in neighbors):
                         return True
-    if cpv == '79000000': # contains 'recrutement' (french) which refers to delegation
+    if '79000000' in cpv_list: # contains 'recrutement' (french) which refers to delegation
         return True
     return False
 
@@ -255,7 +255,7 @@ for file in files:
         if any(text in key for text in section3):
             sec3 = project['project_details'][key]
     title = project['project_title']
-    cpv = project['CPV'][0]
+    cpv_list = project['CPV']# list of cpv codes
     for w in yes_level1:
         if isindict_part(w, project['project_details']):
             p['label'] = 'yes1'
@@ -276,7 +276,7 @@ for file in files:
                 if any(w == word for word in sec1): 
                     p['label'] = 'yes1'
                     break
-            if delegation_criteria(cpv,sec3): # check the criteria for 'delegation'
+            if delegation_criteria(cpv_list,sec3): # check the criteria for 'delegation'
                 p['label'] = 'yes1'
         if p['label'] == 'yes1':
             with open(file, 'w') as outfile:
@@ -310,7 +310,7 @@ for file in files:
                 if any(w == word for word in sec1):
                     p['label'] = 'yes1'
                     break
-            if delegation_criteria(cpv,sec3): # check the criteria for 'delegation'
+            if delegation_criteria(cpv_list,sec3): # check the criteria for 'delegation'
                 p['label'] = 'yes1'
         if p['label'] == 'yes1':
             with open(file, 'w') as outfile:
@@ -346,7 +346,7 @@ for file in files:
                 if any(w == word for word in sec1):
                     p['label'] = 'yes1'
                     break
-            if delegation_criteria(cpv,sec3): # check the criteria for 'delegation'
+            if delegation_criteria(cpv_list,sec3): # check the criteria for 'delegation'
                 p['label'] = 'yes1'
         if p['label'] == 'yes1':
             with open(file, 'w') as outfile:
@@ -401,9 +401,9 @@ for file in files:
         j_data = json.loads(data)
     labeled_project = j_data
     if labeled_project['label'] in ['yes1','yes2']:
-        labeled_project['final_label'] = '1'
+        labeled_project['final_label'] = 1
     else: # labeled_project['label'] in ['no1','no2','yes3']
-        labeled_project['final_label'] = '0'
+        labeled_project['final_label'] = 0
     # save final label into single project file 
     with open(file, 'w') as outfile:
         json.dump(labeled_project, outfile)

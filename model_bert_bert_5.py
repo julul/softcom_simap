@@ -1,3 +1,5 @@
+# ref: https://medium.com/swlh/a-simple-guide-on-using-bert-for-text-classification-bbf041ac8d04
+
 from simpletransformers.classification import ClassificationModel
 import pandas as pd
 import logging
@@ -78,9 +80,10 @@ eval_df = pd.DataFrame(eval_data)
 ################# some definitions
 
 def get_results(classification_model_args,args_combination, train_df, eval_df):
-    print('C')
+    # set some additional (non-tuning) args parameters
+    args_combination['eval_batch_size'] = args_combination['train_batch_size']
+    args_combination['overwrite_output_dir'] = True
     model = ClassificationModel(**classification_model_args, args = args_combination) 
-    print('C1')
     ################## Train the model
     model.train_model(train_df)
     ################## Evaluate the model
@@ -116,9 +119,6 @@ def get_combination_with_results(combination, combination_keys, classification_m
     #name = multiprocessing.current_process().name
     for a, b in zip(combination_keys,combination):
         args_combination[a] = b
-    # set some additional (non-tuning) args parameters
-    args_combination['eval_batch_size'] = args_combination['train_batch_size']
-    args_combination['overwrite_output_dir'] = True
     results = get_results(classification_model_args,args_combination, train_df, eval_df) # returns dict of accuracy, precision, recall, auc, auprc 
     print('B2')
     d1['args_combination'] = args_combination
@@ -186,8 +186,19 @@ def get_best_combination_with_results(classification_model_args, modelargs_tunin
     best_combination = list_of_combination_results[index_max][0] 
     return best_combination, best_results  
     
-
-
+def get_final_results(num_runs, classification_model_args, best_params, train_df, eval_df):
+    metrics = ["accuracy","precision","recall","auc","auprc","f1"]
+    final_results = dict.fromkeys(metrics, [])
+    for n in range(num_runs):
+        results = get_results(classification_model_args,best_params, train_df, eval_df)
+        for metric in metrics:
+            result = results[metric]
+            final_results[metric].append(result)
+    for metric in metrics:
+        l = final_results[metric]
+        final_results[metric] = sum(l)/len(l)
+    return final_results
+    
 
 ################## Create a ClassificationModel
 '''
@@ -223,6 +234,7 @@ class ModelArgs: (default values for 'args')
     eval_batch_size: int = 8
     num_train_epochs: int = 1
     train_batch_size: int = 8
+    max_seq_length: int = 128
     ...
 '''
 # define tuning parameters and values
@@ -261,11 +273,15 @@ best_params, best_results = get_best_combination_with_results(classification_mod
 
 ## check max_len --> length of longest tokenized sentence
 ## check adam properties tuning
-## check batchzise for test set (does it make sense to tune it?)
+## check https://medium.com/swlh/a-simple-guide-on-using-bert-for-text-classification-bbf041ac8d04
+##      for setting max_len and speeding up training time with multiprocessing in conversion from example to feature
+### change 'label' to 'final_label'
 
 best_combination = {}
 best_combination["best_params"] = best_params
-best_combination["best_results"] = best_results
+num_runs = 5
+final_results = get_final_results(num_runs, classification_model_args, best_params, train_df, eval_df) # apply best params and run num_runs times and take the average of the results as best result
+best_combination["best_results"] = final_results
 with io.open(results_path,'r+',encoding='utf8') as file:
     results_object = json.load(file)
     results_object["best_combination"] = best_combination
@@ -277,8 +293,9 @@ for param in best_params:
     best_value = best_params[param]
     print(param + " : " + str(best_value) + "\n")
 print("\n")
-print("Final evaluation results: \n")
-for metric in best_results:
+
+print("Final evaluation results after running " + str(num_runs) + " times and taking the average: \n")
+for metric in final_results:
     result = best_results[metric]
     print(metric + " : " + str(result) + "\n")
 
