@@ -186,18 +186,22 @@ def get_best_combination_with_results(classification_model_args, modelargs_tunin
     best_combination = list_of_combination_results[index_max][0] 
     return best_combination, best_results  
     
+
 def get_final_results(num_runs, classification_model_args, best_params, train_df, eval_df):
     metrics = ["accuracy","precision","recall","auc","auprc","f1"]
-    final_results = dict.fromkeys(metrics, [])
+    betw_results = {}
+    final_results = {}
     for n in range(num_runs):
         results = get_results(classification_model_args,best_params, train_df, eval_df)
-        for metric in metrics:
-            result = results[metric]
-            final_results[metric].append(result)
-    for metric in metrics:
-        l = final_results[metric]
-        final_results[metric] = sum(l)/len(l)
-    return final_results
+        print("results run " + str(n) + ": " + str(results))
+        for m in metrics:
+            betw_results.setdefault(m,[]).append(results[m])
+        print("between results : " + str(betw_results))
+    for m in metrics:
+        m_list = betw_results[m]
+        final_results[m] = round(float(sum(m_list)/len(m_list)),5)
+    print(str(final_results))
+    return final_results  
     
 
 ################## Create a ClassificationModel
@@ -276,6 +280,7 @@ best_params, best_results = get_best_combination_with_results(classification_mod
 ## check https://medium.com/swlh/a-simple-guide-on-using-bert-for-text-classification-bbf041ac8d04
 ##      for setting max_len and speeding up training time with multiprocessing in conversion from example to feature
 ### change 'label' to 'final_label'
+
 
 best_combination = {}
 best_combination["best_params"] = best_params

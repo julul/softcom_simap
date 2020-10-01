@@ -10,8 +10,6 @@ import json
 import re
 import ast
 from nltk.tokenize import word_tokenize
-import json
-import pandas as pd
 from scipy.stats import randint
 #import seaborn as sns # used for plot interactive graph. 
 # https://stackoverflow.com/questions/3453188/matplotlib-display-plot-on-a-remote-machine
@@ -200,12 +198,13 @@ def get_results(name, params_wordembeddings, params_classification,X_test, y_tes
     auprc = metrics.average_precision_score(y_test, y_pred)
     f1 = metrics.f1_score(y_test, y_pred)
     results = {}
-    results['accuracy'] = round(accuracy,5)
-    results['precision'] = round(precision,5)
-    results['recall'] = round(recall,5)
-    results['auc'] = round(auc,5)
-    results['auprc'] = round(auprc,5)
-    results['f1'] = round(f1,5)
+    results['accuracy'] = round(float(accuracy),5)
+    results['precision'] = round(float(precision),5)
+    results['recall'] = round(float(recall),5)
+    results['auc'] = round(float(auc),5)
+    results['auprc'] = round(float(auprc),5)
+    results['f1'] = round(float(f1),5)
+    print(str(results))
     return results
 
 def get_combination_with_results(combination,all_keys, keys_wordembeddings, X_test, y_test):
@@ -236,7 +235,6 @@ def get_combination_with_results(combination,all_keys, keys_wordembeddings, X_te
         results_object.update(d4)
         file.seek(0)  # not sure if needed 
         json.dump(results_object, file)
-    print(results)
     return [[params_wordembeddings,params_classification], results] 
 
 
@@ -284,15 +282,18 @@ def get_best_combination_with_results(param_grid_wordembeddings, param_grid_clas
 
 def get_final_results(num_runs, params_wordembeddings, params_classification,X_test, y_test):
     metrics = ["accuracy","precision","recall","auc","auprc","f1"]
-    final_results = dict.fromkeys(metrics, [])
+    betw_results = {}
+    final_results = {}
     for n in range(num_runs):
         results = get_results(str(n), params_wordembeddings, params_classification,X_test, y_test)
-        for metric in metrics:
-            result = results[metric]
-            final_results[metric].append(result)
-    for metric in metrics:
-        l = final_results[metric]
-        final_results[metric] = sum(l)/len(l)
+        print("results run " + str(n) + ": " + str(results))
+        for m in metrics:
+            betw_results.setdefault(m,[]).append(results[m])
+        print("between results : " + str(betw_results))
+    for m in metrics:
+        m_list = betw_results[m]
+        final_results[m] = round(float(sum(m_list)/len(m_list)),5)
+    print(str(final_results))
     return final_results  
 
 ################# loading data
@@ -478,11 +479,36 @@ best_params_wordembeddings, best_params_classification, best_results = get_best_
 
 ### change 'label' to 'final_label'
 
+## or load the (saved) best results
+with io.open(results_path,'r+',encoding='utf8') as file:
+    results_object = json.load(file)
+
+score_value = 0.0
+best_comb_name = ""
+for name,_ in results_object.items():
+    if 'comb' not in name:
+        continue
+    v = results_object[name]['results']['auprc']
+    if v > score_value:
+        score_value = v
+        best_comb_name = name
 
 
+
+best_params_wordembeddings = results_object[best_comb_name]["params_wordembeddings"]
+best_params_classification = results_object[best_comb_name]["params_classification"]
 best_combination = {}
 best_combination["best_params_wordembeddings"] = best_params_wordembeddings
 best_combination["best_params_classification"] = best_params_classification
+'''
+with io.open(results_path,'r+',encoding='utf8') as file:
+    results_object = json.load(file)
+    results_object["best_combination"] = best_combination
+    file.seek(0)  # not sure if needed 
+    json.dump(results_object, file)
+'''
+
+
 num_runs = 5
 final_results = get_final_results(num_runs, best_params_wordembeddings,best_params_classification,X_test, y_test) # apply best params and run num_runs times and take the average of the results as best result
 best_combination["best_results"] = final_results
