@@ -113,12 +113,12 @@ def preprocess_projects(partition_tuple, df):
         cleaned_project['final_label'] = df['final_label'][i] # '0' or '1'
         
         ######### TODO: adapt when adapted cpv is adapted in extraction part
-        cpv_raw = df['CPV'][i] # e.g. "['50000000']"
+        cpv_raw = df['CPV'][i] # e.g. "['50000000', '70000000']"
         # convert string representation of list into list
-        cpv_raw1 = ast.literal_eval(cpv_raw) # e.g ['50000000']
-        cpv = cpv_raw1[0] # e.g. '50000000'
+        cpv_list = ast.literal_eval(cpv_raw) # e.g ['50000000','70000000']
+        #cpv = cpv_raw1[0] # e.g. '50000000'
     
-        cleaned_project['CPV'] = cpv # e.g. '50000000'
+        cleaned_project['CPV'] = cpv_list # e.g ['50000000','70000000']
         cleaned_project['project_title'] = df['project_title'][i]
     
         # summarize those text (features) which need to be cleaned
