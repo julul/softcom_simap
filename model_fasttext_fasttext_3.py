@@ -495,11 +495,11 @@ for name,_ in results_object.items():
 
 
 
-best_params_wordembeddings = results_object[best_comb_name]["params_wordembeddings"]
-best_params_classification = results_object[best_comb_name]["params_classification"]
-best_combination = {}
-best_combination["best_params_wordembeddings"] = best_params_wordembeddings
-best_combination["best_params_classification"] = best_params_classification
+ best_params_wordembeddings = results_object[best_comb_name]["params_wordembeddings"]
+ best_params_classification = results_object[best_comb_name]["params_classification"]
+ best_combination = {}
+ best_combination["best_params_wordembeddings"] = best_params_wordembeddings
+ best_combination["best_params_classification"] = best_params_classification
 '''
 with io.open(results_path,'r+',encoding='utf8') as file:
     results_object = json.load(file)

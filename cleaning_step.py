@@ -77,6 +77,7 @@ for l in languages:
 meaningless_words = []
 for _, sw in stopwords_lists.items():
     meaningless_words.extend(sw)
+
 # drop duplicates
 meaningless_words = list(dict.fromkeys(meaningless_words))
 
@@ -110,25 +111,22 @@ def preprocess_projects(partition_tuple, df):
         if cleaned_project['project_details'] == '{}':
             failed_extraction.append(i)
             continue
-        cleaned_project['final_label'] = df['final_label'][i] # '0' or '1'
-        
-        ######### TODO: adapt when adapted cpv is adapted in extraction part
-        cpv_raw = df['CPV'][i] # e.g. "['50000000', '70000000']"
+        cleaned_project['final_label'] = df['final_label'][i] # 0 or 1       
+        #cpv_raw = df['CPV'][i] # e.g. "['50000000', '70000000']"
         # convert string representation of list into list
-        cpv_list = ast.literal_eval(cpv_raw) # e.g ['50000000','70000000']
-        #cpv = cpv_raw1[0] # e.g. '50000000'
-    
-        cleaned_project['CPV'] = cpv_list # e.g ['50000000','70000000']
+        #cpv_list = ast.literal_eval(cpv_raw) # e.g ['50000000','70000000']
+        #cpv = cpv_raw1[0] # e.g. '50000000'   
+        #cleaned_project['CPV'] = cpv_list # e.g ['50000000','70000000']
+        cleaned_project['CPV'] = df['CPV'][i] # e.g. "['50000000', '70000000']"
         cleaned_project['project_title'] = df['project_title'][i]
-    
         # summarize those text (features) which need to be cleaned
         texts_keys = ['project_details', 'project_title']
         for t in range(len(texts_keys)):
             text = cleaned_project[texts_keys[t]]
             # assign cleaned text
             cleaned_project[texts_keys[t]] = clean_text(text)
-            cleaned_projects.append(cleaned_project)
-        return [cleaned_projects, failed_extraction]
+        cleaned_projects.append(cleaned_project)
+    return [cleaned_projects, failed_extraction]
 
 
 def get_partition_tuples(num_processes):
@@ -148,13 +146,13 @@ def get_partition_tuples(num_processes):
 
 ################### load unclean projects
 # load labeled data
-df_raw = pd.read_csv('./input/merged_file.csv',sep='\t', encoding = 'utf-8')
+df_raw = pd.read_csv('./data/labeled_projects.csv',sep='\t', encoding = 'utf-8')
 # Create a new dataframe
 df = df_raw[['final_label', 'project_details','CPV','project_title']].copy()
 
 
-################### clean projects
 
+################### clean projects
 # catch project whose extraction has failed
 failed_extraction = []
 # save each cleaned project into list
@@ -167,15 +165,18 @@ partition_tuples = get_partition_tuples(num_processes)
 pool = multiprocessing.Pool(processes=num_processes)
 f=partial(preprocess_projects, df=df) 
 
-list_of_results = pool.map(f, partition_tuples) #returns list of [cleaned_projects, failed_extraction]
+list_of_results = pool.map(f, partition_tuples) # returns list of [cleaned_projects, failed_extraction]
 for c, f in list_of_results:
     all_cleaned_projects.extend(c) 
     failed_extraction.extend(f)
 
 df_cleaned = pd.DataFrame(all_cleaned_projects) # columns are ['final_label', 'project_details','CPV','project_title']
-
+df_failed = pd.DataFrame(failed_extraction)
 ################### save cleaned projects
-df_cleaned.to_csv('./input/merged_file_cleaned.csv', sep='\t', encoding = 'utf-8')
+df_cleaned.to_csv('./data/cleaned_labeled_projects.csv', sep='\t', encoding = 'utf-8')
+df_failed.to_csv('./data/failed_labeled_projects.csv', sep='\t', encoding = 'utf-8')
 
 
-
+df1_raw = pd.read_csv('./data/cleaned_labeled_projects.csv',sep='\t', encoding = 'utf-8')
+# Create a new dataframe
+df1 = df1_raw[['final_label', 'project_details','CPV','project_title']].copy()
