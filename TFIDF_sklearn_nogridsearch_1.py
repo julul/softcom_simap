@@ -67,6 +67,8 @@ from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 import random
 from langdetect import detect
 from glob import iglob
+from os import path
+from filelock import FileLock
 
 ################# definitions
 # The optimal cut-off would be where the true positive rate (tpr) is high
@@ -78,8 +80,7 @@ def equal(X_test,y_test):
     # take the difference of number of yes and no labels
     diff = abs(y_test.count(1)-y_test.count(0))
     y_test_new = []
-    X_test_new = []
-    
+    X_test_new = [] 
     c = 0
     if y_test.count(1) < y_test.count(0): # basically this case is true, since there are much more 0's than 1's
         for i in range(0,len(y_test)):
@@ -143,6 +144,7 @@ def get_predictions(threshold, prediction_scores):
 
 def perform( fun, **args ):
     return fun( **args )
+
 '''
 example:
 def sayhello(fname, sname):
@@ -153,12 +155,41 @@ perform(sayhello, **params)
 '''
 
 # see https://stackoverflow.com/questions/47895434/how-to-make-pipeline-for-multiple-dataframe-columns
-def get_results(params_representation, params_classification, classifier, X_train, y_train, X_test, y_test):
+def get_results(params_representation, params_classification, classifier, train_indicies=None, test_indicies=None):
+    vectorizer = TfidfVectorizer(sublinear_tf=True, **params_representation)
+    try:
+        features = vectorizer.fit_transform(df['project_details'].tolist()).toarray()
+    except ValueError as e:  # as e syntax added in ~python2.5
+        if str(e) == "max_df corresponds to < documents than min_df":
+            return None
+        else:
+            raise ValueError('ValueError occurred')
+    print("features length: " + str(len(features)))   
+    if train_indicies is None:
+        X_train, X_test, y_train, y_test = train_test_split(features, df['final_label'], test_size= 0.2, random_state=42)
+    else:
+        X_train= []
+        X_test = []
+        y_train = []
+        y_test = []
+        for i in train_indicies:
+            X_train.append(features[i])
+            y_train.append(df['final_label'][i])
+        for j in test_indicies:
+            X_test.append(features[j])
+            y_test.append(df['final_label'][j])
+    #conversion
+    y_train = y_train.tolist()
+    X_train = X_train.tolist()
+    y_test = y_test.tolist()
+    X_test = X_test.tolist()
+    ### (number of yes) == (number of no) in test set
+    X_test_1, y_test_1 = equal(X_test,y_test)
+    X_test = X_test_1
+    y_test = y_test_1
     ### apply hyperparameter and train model
-    print("2a\n")
     classification_model = perform(classifier, **params_classification) # e.g. classifier == LogisticRegression
     classification_model.fit(X_train, y_train)
-    print("2b\n") 
     ### find the optimal classification threshold and predict class labels on a set based on that threshold    
     #generate class probabilites
     '''
@@ -169,10 +200,12 @@ def get_results(params_representation, params_classification, classifier, X_trai
         y_scores = classification_model.decision_function(X_test) # for svc function
     '''
     if 'SVC' in str(classifier):
+        print('passed ' + str(classifier))
         y_scores = classification_model.decision_function(X_test)
     else:
         probs = classification_model.predict_proba(X_test) # 2 elements will be returned in probs array,
         y_scores = probs[:,1] # 2nd element gives probability for positive class      
+    print(str(classifier))
     # find optimal probability threshold
     opt_threshold = find_optimal_cutoff(y_test, y_scores)
     # apply optimal threshold to the prediction probability and get label predictions
@@ -193,7 +226,7 @@ def get_results(params_representation, params_classification, classifier, X_trai
     results['f1'] = round(float(f1),5)
     return results
 
-def get_combination_with_results(combination,all_keys, keys_representation, classifier,X_train, y_train, X_test, y_test):
+def get_combination_with_results(combination,all_keys, keys_representation, classifier):
     params_representation = {}
     params_classification = {}
     d1={}
@@ -206,27 +239,34 @@ def get_combination_with_results(combination,all_keys, keys_representation, clas
         else:
             params_classification[a] = b
     print("1a\n")
-    results = get_results(params_representation, params_classification, classifier, X_train, y_train, X_test, y_test) # returns dict of accuracy, precision, recall, auc, auprc, f1
+    results = get_results(params_representation, params_classification, classifier) # returns dict of accuracy, precision, recall, auc, auprc, f1
     print("1b\n")
     d1['params_representation'] = params_representation
     d2['params_classification'] = params_classification
     d3['results'] = results
-    with io.open(results_path,'r+',encoding='utf8') as file:
-        results_object = json.load(file)
-        number_of_combinations = len([key for key, value in results_object.items() if 'comb' in key.lower()])
-        comb_nr = "comb_" + str(number_of_combinations+1)
-        d4[comb_nr] = {}
-        d4[comb_nr].update(d1)
-        d4[comb_nr].update(d2)
-        d4[comb_nr].update(d3)
-        results_object.update(d4)
-        file.seek(0)  # not sure if needed 
-        json.dump(results_object, file)
-    print(results)
+    if results is not None:
+        lock_path = results_path + ".lock" 
+        with FileLock(lock_path):
+            file = open(results_path,'r',encoding='utf8')
+            results_object = json.load(file)
+            file.close()
+            
+            number_of_combinations = len([key for key, value in results_object.items() if 'comb' in key.lower()])
+            comb_nr = "comb_" + str(number_of_combinations+1)
+            d4[comb_nr] = {}
+            d4[comb_nr].update(d1)
+            d4[comb_nr].update(d2)
+            d4[comb_nr].update(d3)
+            results_object.update(d4)
+            
+            file = open(results_path,'w+',encoding='utf8')
+            file.write(json.dumps(results_object))
+            file.close()
+        print(results)
     return [[params_representation,params_classification], results] 
 
 
-def get_best_combination_with_results(param_grid_representation, param_grid_classification, score, classifier,X_train, y_train, X_test, y_test):
+def get_best_combination_with_results(param_grid_representation, param_grid_classification, score, classifier):
     keys_representation = list(param_grid_representation.keys())
     values_representation = list(param_grid_representation.values())
     keys_classification = list(param_grid_classification.keys())
@@ -235,14 +275,16 @@ def get_best_combination_with_results(param_grid_representation, param_grid_clas
     all_keys = keys_representation + keys_classification
     all_combinations = list(itertools.product(*all_values))
     print("A\n")
-    num_available_cores = len(os.sched_getaffinity(0)) - 3
+    num_available_cores = len(os.sched_getaffinity(0))
+    num_cores = num_available_cores - 10
     print("B\n")
-    pool = multiprocessing.Pool(processes=num_available_cores)
+    pool = multiprocessing.Pool(processes=num_cores)
     print("C\n")
-    f=partial(get_combination_with_results, all_keys=all_keys, keys_representation=keys_representation, classifier=classifier, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test) 
+    f=partial(get_combination_with_results, all_keys=all_keys, keys_representation=keys_representation, classifier=classifier) 
     print("D\n")
-    list_of_combination_results = pool.map(f, all_combinations) #returns list of [[params_representation_dict,params_classification_dict], results_dict] 
+    list_of_combination_results = pool.map(f, all_combinations) #returns list of [[params_representation_dict,params_classification_dict], results] 
     print("E\n")
+    list_of_combination_results = [item for item in list_of_combination_results if item[1] is not None] 
     accuracy_scores = [results["accuracy"] for combination,results in list_of_combination_results]
     precision_scores = [results["precision"] for combination,results in list_of_combination_results]
     recall_scores = [results["recall"] for combination,results in list_of_combination_results]
@@ -274,12 +316,12 @@ def get_best_combination_with_results(param_grid_representation, param_grid_clas
     return best_params_representation, best_params_classification, best_results
 
 
-def get_final_results(num_runs, params_representation, params_classification,classifier,X_train, y_train, X_test, y_test):
+def get_final_results(num_runs, params_representation, params_classification,classifier,train_indicies=None, test_indicies=None ):
     metrics = ["accuracy","precision","recall","auc","auprc","f1"]
     betw_results = {}
     final_results = {}
     for n in range(num_runs):
-        results = get_results(params_representation, params_classification,classifier,X_train, y_train, X_test, y_test)
+        results = get_results(params_representation, params_classification,classifier,train_indicies, test_indicies)
         #print("results run " + str(n) + ": " + str(results))
         for m in metrics:
             betw_results.setdefault(m,[]).append(results[m])
@@ -293,46 +335,36 @@ def get_final_results(num_runs, params_representation, params_classification,cla
 def lang_dependency_set(test_size, lang):
     k = len(lang_indicies[lang]) * test_size
     indicies = random.sample(range(len(lang_indicies[lang])), int(k))
-    X_test = []
-    y_test = []
-    X_train = []
-    y_train = []
-    
+    test_indicies = []
+    train_indicies = []    
     for i in range(len(lang_indicies[lang])):
         index = lang_indicies[lang][i]
         if i in indicies:
-            X_test.append(df['project_details'][index])
-            y_test.append(df['final_label'][index])
+            test_indicies.append(index)
         else:
-            X_train.append(df['project_details'][index])
-            y_train.append(df['final_label'][index])
+            train_indicies.append(index)
    
-    X_train_dep = X_train
-    y_train_dep = y_train      
+    train_dep_indicies = train_indicies
     
     for l in lang_indicies:
         if l == lang:
-            print(l)
             continue
         for i in range(len(lang_indicies[l])):
             index = lang_indicies[l][i]
-            X_train.append(df['project_details'][index])
-            y_train.append(df['final_label'][index])
+            train_indicies.append(index)    
     
-    return X_train.tolist(), y_train.tolist(), X_train_dep.tolist(), y_train_dep.tolist(), X_test.tolist(), y_test.tolist()
+    return train_indicies, train_dep_indicies, test_indicies
 
 def compare_lang_dependency(test_size, lang):
-    ### split train and test sets for 1st and 2nd set up
-    # 1st set up:  X_train_dep, y_train_dep, X_test_dep, y_test_dep
-    # 2nd set up:  X_train_indep, y_train_indep, X_test_dep, y_test_dep
-    X_train_indep, y_train_indep, X_train_dep, y_train_dep, X_test_dep, y_test_dep = lang_dependency_set(test_size = test_size, lang = lang)
+    ### split train and test set indicies for 1st and 2nd set up
+    train_indep_indicies, train_dep_indicies, test_indicies = lang_dependency_set(test_size = test_size, lang = lang)
     ### apply best params and run num_runs times to take the average of the results 
     # set number of runs
     num_runs = 5
     # get results on 1st set up
-    results_dep = get_final_results(num_runs, best_params_representation,best_params_classification,classifier, X_train_dep, y_train_dep, X_test_dep, y_test_dep) 
+    results_dep = get_final_results(num_runs, best_params_representation,best_params_classification,classifier, train_dep_indicies, test_indicies) 
     # get results on 2nd set up
-    results_indep = get_final_results(num_runs, best_params_representation,best_params_classification,classifier, X_train_indep, y_train_indep, X_test_dep, y_test_dep) 
+    results_indep = get_final_results(num_runs, best_params_representation,best_params_classification,classifier, train_indep_indicies, test_indicies) 
     # compare results of 1st and 2nd set up
     if results_dep[score] > results_indep[score]:
         dependency_result = 1  # dependent is better
@@ -344,11 +376,13 @@ def compare_lang_dependency(test_size, lang):
     lang_dependency_results[lang + "_dependent"] = results_dep
     lang_dependency_results[lang + "_independent"] = results_indep
     lang_dependency_results["dependency_result"] = dependency_result
-    with io.open(results_path,'r+',encoding='utf8') as file:
-        results_object = json.load(file)
-        results_object[lang + "_dependency_result"] = lang_dependency_results
-        file.seek(0)  # not sure if needed 
-        json.dump(results_object, file)
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close()
+    results_object[lang + "_dependency_result"] = lang_dependency_results
+    file = open(results_path,'w+',encoding='utf8')
+    file.write(json.dumps(results_object))
+    file.close()
     return comparison_result
 
 
@@ -432,6 +466,7 @@ class_weight = ['balanced']
 solver = ['liblinear', 'saga']
 param_grid_lg = {"C":C, "penalty":penalty, "class_weight":class_weight, 'solver':solver}
 
+b = {"C":0.01, "penalty":"l1", "class_weight":"balanced", "solver":"liblinear"}
 
 #### Hyperparameter tuning Multinomial Naive Bayes
 alpha = np.linspace(0.5, 1.5, 6)
@@ -462,11 +497,7 @@ model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path acc
 results_path = model_path(num)
 score = "auprc" # choose among 'auprc', 'auc', 'f1', 'accuracy', 'precision', 'recall'
 ##########################################################################################################################
-# prepare framework for saving results
-results_object={}
-results_object['tune_param_representation'] = param_grid_tfidf
-results_object['tune_param_classification'] = param_grid_classification
-results_object['score'] = score
+
 
 ################## loading cleaned labeled data
 # load cleaned labeled data
@@ -474,31 +505,20 @@ df_raw = pd.read_csv('./data/cleaned_labeled_projects.csv',sep='\t', encoding = 
 # Create a new dataframe
 df = df_raw[['final_label', 'project_details','CPV','project_title']].copy()
 
-################## split and prepare data for text classification
-'''
- training of 80% of all projects and
- evaluating of 20% of randomly chosen projects (independently of the language)
-'''
-X_train, X_test, y_train, y_test = train_test_split(df['project_details'], df['final_label'], test_size= 0.2, random_state=42)
-#conversion
-y_train = y_train.tolist()
-X_train = X_train.tolist()
-y_test = y_test.tolist()
-X_test = X_test.tolist()
-### (number of yes) == (number of no) in test set
-X_test_1, y_test_1 = equal(X_test,y_test)
-X_test = X_test_1
-y_test = y_test_1
-
 
 ################################################# ***** RUN THIS PART ***** ###############################################
-###### REMOVE FILE MANUALLY IF WANTED ######
+###### EVENTUALLY REMOVE FILE MANUALLY ######
 # check if file already exists, if yes create new one
+# prepare framework for saving results
+results_object={}
+results_object['tune_param_representation'] = param_grid_tfidf
+results_object['tune_param_classification'] = param_grid_classification
+results_object['score'] = score
 if os.path.exists(results_path):
     bn_list = list(map(path.basename,iglob(pth+"*.json")))
     num_list = []
     for bn in bn_list:
-        num_list.extend([int(s) for s in bn.split() if s.isdigit()])
+        num_list.extend(int(i) for i in re.findall('\d+', bn))
     max_num = max(num_list)
     num = max_num + 1
     results_path = model_path(num)
@@ -507,22 +527,29 @@ with io.open(results_path,'w+',encoding='utf8') as file:
     json.dump(results_object, file) 
 
 ################## get best parameter values along with the results 
-best_params_representation, best_params_classification, best_results = get_best_combination_with_results(param_grid_tfidf, param_grid_classification, score, classifier,X_train, y_train, X_test, y_test)
+    '''
+    training of 80% of all projects and
+    evaluating of 20% of randomly chosen projects (independently of the language)
+    '''
+best_params_representation, best_params_classification, best_results = get_best_combination_with_results(param_grid_tfidf, param_grid_classification, score, classifier)
 
-################## run 5 times with best parameter values from and take the average 
+################## run 5 times with best parameter values and take the average 
 num_runs = 5
-final_results = get_final_results(num_runs, best_params_representation,best_params_classification,classifier, X_train, y_train, X_test, y_test) # apply best params and run num_runs times and take the average of the results as best result
+final_results = get_final_results(num_runs, best_params_representation,best_params_classification,classifier) # apply best params and run num_runs times and take the average of the results as best result
 
 ################## save best parameter values and the results 
 best_combination = {}
 best_combination["best_params_representation"] = best_params_representation
 best_combination["best_params_classification"] = best_params_classification
 best_combination["best_results"] = final_results
-with io.open(results_path,'r+',encoding='utf8') as file:
-    results_object = json.load(file)
-    results_object["best_combination"] = best_combination
-    file.seek(0)  # not sure if needed 
-    json.dump(results_object, file)
+
+file = open(results_path,'r',encoding='utf8')
+results_object = json.load(file)
+file.close()
+results_object["best_combination"] = best_combination
+file = open(results_path,'w+',encoding='utf8')
+file.write(json.dumps(results_object))
+file.close()
 
 ################## OUTPUT the best parameter values and the results
 print("Best representation parameter values according to " + score + ": \n")
@@ -540,7 +567,7 @@ for metric in best_results:
     result = best_results[metric]
     print(metric + " : " + str(result) + "\n")
 
-##################################### compare LANGUAGE DEPENDENCY with INDEPENDENCY #######################################
+##################################### compare LANGUAGE DEPENDENCY with LANGUAGE INDEPENDENCY #######################################
 '''
 Test if applying TFIDF on each language separately gives better results or independently of the language
 
@@ -581,11 +608,14 @@ for lang in languages:
     dep_count = dep_count + dep_result
 
 ## save the results 
-with io.open(results_path,'r+',encoding='utf8') as file:
-    results_object = json.load(file)
-    results_object["overall_dependency_result"] = str(dep_count) + "/" + str(len(languages))
-    file.seek(0)  # not sure if needed 
-    json.dump(results_object, file)
+
+file = open(results_path,'r',encoding='utf8')
+results_object = json.load(file)
+file.close()
+results_object["overall_dependency_result"] = str(dep_count) + "/" + str(len(languages))
+file = open(results_path,'w+',encoding='utf8')
+file.write(json.dumps(results_object))
+file.close()
 
 ## output the results
 if dep_count > half:
