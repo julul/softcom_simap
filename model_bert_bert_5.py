@@ -13,73 +13,81 @@ import time
 from random import randint
 from multiprocessing.pool import ThreadPool
 import numpy
+import os, os.path
+from glob import iglob
+from os import path
+from sklearn.model_selection import train_test_split
+import re
 
 logging.basicConfig(level=logging.INFO)
 transformers_logger = logging.getLogger("transformers")
 transformers_logger.setLevel(logging.WARNING)
-############### BERT tuning without process or thread parallelisation with pool
-
-
-### Load data 
-
-df = pd.read_csv('./input/merged_file_all.csv', sep='\t', encoding = 'utf-8')
-df= df[['labels', 'project_details']].copy()
-################## prepare data for text classification
-# Validation Set approach : take 90% of the data as the training set and 10 % as the test set. X is a dataframe with  the input variable
-# K fold cross-validation approach as well?
-length_to_split = int(len(df) * 0.90)
-
-X = df['project_details']
-y = df['labels']
-
-## Splitting the X and y into train and test datasets
-X_train, X_test = X[:length_to_split], X[length_to_split:]
-y_train, y_test = y[:length_to_split], y[length_to_split:]
-#conversion
-y_train = y_train.tolist()
-X_train = X_train.tolist()
-y_test = y_test.tolist()
-X_test = X_test.tolist()
-
-## make number of yes == number of no
-# take the difference of number of yes and no labels
-diff = abs(y_test.count(1)-y_test.count(0))
-y_test_new = []
-X_test_new = []
-
-c = 0
-if y_test.count(1) < y_test.count(0): # basically this case is true, since there are much more 0's than 1's
-    for i in range(0,len(y_test)):
-        if (y_test[i] == 1) or (y_test[i] == 0 and c >= diff):
-            y_test_new.append(y_test[i])
-            X_test_new.append(X_test[i])
-        elif y_test[i] == 0 and c < diff:
-            c = c + 1
-elif y_test.count(0) < y_test.count(1): 
-    for i in range(0,len(y_test)):
-        if (y_test[i] == 0) or (y_test[i] == 1 and c >= diff):
-            y_test_new.append(y_test[i])
-            X_test_new.append(X_test[i])
-        elif y_test[i] == 1 and c < diff:
-            c = c + 1
-
-y_test_old = y_test
-X_test_old = X_test
-y_test = y_test_new
-X_test = X_test_new
-
-##################  Train and Evaluation data needs to be in a Pandas Dataframe of two columns. The first column is the text with type str, and the second column is the label with type int.
-
-train_data = [[a,b] for a,b in zip(X_train, y_train)]
-train_df = pd.DataFrame(train_data)
-
-eval_data = [[a,b] for a,b in zip(X_test, y_test)]
-eval_df = pd.DataFrame(eval_data)
-
+######################### BERT tuning without process or thread parallelisation with pool
 
 ################# some definitions
+def equal(X_test,y_test):
+    ## make number of yes == number of no
+    # take the difference of number of yes and no labels
+    diff = abs(y_test.count(1)-y_test.count(0))
+    y_test_new = []
+    X_test_new = [] 
+    c = 0
+    if y_test.count(1) < y_test.count(0): # basically this case is true, since there are much more 0's than 1's
+        for i in range(0,len(y_test)):
+            if (y_test[i] == 1) or (y_test[i] == 0 and c >= diff):
+                y_test_new.append(y_test[i])
+                X_test_new.append(X_test[i])
+            elif y_test[i] == 0 and c < diff:
+                c = c + 1
+    elif y_test.count(0) < y_test.count(1): 
+        for i in range(0,len(y_test)):
+            if (y_test[i] == 0) or (y_test[i] == 1 and c >= diff):
+                y_test_new.append(y_test[i])
+                X_test_new.append(X_test[i])
+            elif y_test[i] == 1 and c < diff:
+                c = c + 1
+    return X_test_new, y_test_new
 
-def get_results(classification_model_args,args_combination, train_df, eval_df):
+def get_train_test_sets(train_indicies=None, test_indicies=None,test_size= 0.2, random_state=0):
+    if train_indicies is None:
+        X_train, X_test, y_train, y_test = train_test_split(df['project_details'], df['final_label'], test_size= test_size, random_state=random_state)
+    else:
+        X_train= []
+        X_test = []
+        y_train = []
+        y_test = []
+        for i in train_indicies:
+            X_train.append(df[i])
+            y_train.append(df['final_label'][i])
+        for j in test_indicies:
+            X_test.append(df[j])
+            y_test.append(df['final_label'][j])   
+    #conversion
+    splitted_set = [y_train,X_train,y_test, X_test]
+    for p in range(len(splitted_set)):
+        if isinstance(splitted_set[p], list):
+            pass
+        else:
+            splitted_set[p] = splitted_set[p].tolist()
+    y_train = splitted_set[0]
+    X_train = splitted_set[1]
+    y_test = splitted_set[2]
+    X_test = splitted_set[3]
+    ### make (number of yes) == (number of no) in test set
+    X_test_1, y_test_1 = equal(X_test,y_test)
+    X_test = X_test_1.copy()
+    y_test = y_test_1.copy()
+    
+    return X_train, X_test, y_train, y_test
+
+
+
+def get_results(classification_model_args,args_combination, train_indicies = None, test_indicies = None, random_state = 0, report = False):
+    X_train, X_test, y_train, y_test = get_train_test_sets(train_indicies, test_indicies,test_size= 0.2, random_state=random_state)    
+    # Train and Evaluation data needs to be in a Pandas Dataframe of two columns.
+    # The first column is the text with type str, and the second column is the label with type int.
+    train_df = pd.DataFrame([[a,b] for a,b in zip(X_train, y_train)])
+    eval_df = pd.DataFrame([[a,b] for a,b in zip(X_test, y_test)])
     # set some additional (non-tuning) args parameters
     args_combination['eval_batch_size'] = args_combination['train_batch_size']
     args_combination['overwrite_output_dir'] = True
@@ -110,7 +118,7 @@ def get_results(classification_model_args,args_combination, train_df, eval_df):
     return result
 
 
-def get_combination_with_results(combination, combination_keys, classification_model_args,train_df, eval_df):
+def get_combination_with_results(combination, combination_keys, classification_model_args):
     print('B')
     args_combination = {}
     d1={}
@@ -119,25 +127,27 @@ def get_combination_with_results(combination, combination_keys, classification_m
     #name = multiprocessing.current_process().name
     for a, b in zip(combination_keys,combination):
         args_combination[a] = b
-    results = get_results(classification_model_args,args_combination, train_df, eval_df) # returns dict of accuracy, precision, recall, auc, auprc 
+    results = get_results(classification_model_args,args_combination) # returns dict of accuracy, precision, recall, auc, auprc 
     print('B2')
     d1['args_combination'] = args_combination
     d3['results'] = results
-    with io.open(results_path,'r+',encoding='utf8') as file:
-        results_object = json.load(file)
-        number_of_combinations = len([key for key, value in results_object.items() if 'comb' in key.lower()])
-        comb_nr = "comb_" + str(number_of_combinations+1)
-        d4[comb_nr] = {}
-        d4[comb_nr].update(d1)
-        d4[comb_nr].update(d3)
-        results_object.update(d4)
-        file.seek(0)  # not sure if needed 
-        json.dump(results_object, file)
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close()
+    number_of_combinations = len([key for key, value in results_object.items() if 'comb' in key.lower()])
+    comb_nr = "comb_" + str(number_of_combinations+1)
+    d4[comb_nr] = {}
+    d4[comb_nr].update(d1)
+    d4[comb_nr].update(d3)
+    results_object.update(d4)
+    file = open(results_path,'w+',encoding='utf8')
+    file.write(json.dumps(results_object))
+    file.close()    
     print(results)
     return [args_combination, results] 
 
 
-def get_best_combination_with_results(classification_model_args, modelargs_tuning_grid, score, train_df, eval_df):    
+def get_best_combination_with_results(classification_model_args, modelargs_tuning_grid, score):    
     print('A')
     modelargs_tuning_values = list(modelargs_tuning_grid.values())
     combination_keys = list(modelargs_tuning_grid.keys())
@@ -156,43 +166,28 @@ def get_best_combination_with_results(classification_model_args, modelargs_tunin
     '''
     list_of_combination_results = []
     for combination in all_combinations:
-        combination_result = get_combination_with_results(combination = combination, combination_keys = combination_keys, classification_model_args=classification_model_args, train_df=train_df, eval_df=eval_df)
+        combination_result = get_combination_with_results(combination = combination, combination_keys = combination_keys, classification_model_args=classification_model_args)
         list_of_combination_results.append(combination_result)
-    accuracy_scores = [results["accuracy"] for combination,results in list_of_combination_results]
-    precision_scores = [results["precision"] for combination,results in list_of_combination_results]
-    recall_scores = [results["recall"] for combination,results in list_of_combination_results]
-    auc_scores = [results["auc"] for combination,results in list_of_combination_results] # auc scores
-    auprc_scores = [results["auprc"] for combination,results in list_of_combination_results] # auprc scores 
-    f1_scores = [results["f1"] for combination,results in list_of_combination_results] 
-    if score == "auprc":
-        index_max = max(range(len(auprc_scores)), key=auprc_scores.__getitem__)
-    elif score == "auc":
-        index_max = max(range(len(auc_scores)), key=auc_scores.__getitem__)
-    elif score == "recall":
-        index_max = max(range(len(recall_scores)), key=recall_scores.__getitem__)
-    elif score == "precision":
-        index_max = max(range(len(precision_scores)), key=precision_scores.__getitem__)
-    elif score == "accuracy":
-        index_max = max(range(len(accuracy_scores)), key=accuracy_scores.__getitem__)
-    elif score == "f1":
-        index_max = max(range(len(f1_scores)), key=f1_scores.__getitem__)
-    best_results = {}
-    best_results["auprc"] = auprc_scores[index_max]
-    best_results["auc"] = auc_scores[index_max]
-    best_results["recall"] = recall_scores[index_max]
-    best_results["precision"] = precision_scores[index_max]
-    best_results["accuracy"] = accuracy_scores[index_max]
-    best_results["f1"] = f1_scores[index_max]
-    best_combination = list_of_combination_results[index_max][0] 
+    max_score_value = max(results[score] for combination,results in list_of_combination_results)
+    max_comb_results = [[combination,results] for combination,results in list_of_combination_results if results[score] == max_score_value] # list of [[params_representation_dict,params_classification_dict], results] 
+    print("Length of max_comb_results :" + str(len(max_comb_results)))
+    best_results = max_comb_results[0][1].copy() 
+    best_combination = max_comb_results[0][0].copy()
+    print(best_results)
     return best_combination, best_results  
     
 
-def get_final_results(num_runs, classification_model_args, best_params, train_df, eval_df):
+def get_averaged_results(num_runs, classification_model_args, params, train_indicies=None, test_indicies=None):
     metrics = ["accuracy","precision","recall","auc","auprc","f1"]
     betw_results = {}
     final_results = {}
+    random_state = 10
     for n in range(num_runs):
-        results = get_results(classification_model_args,best_params, train_df, eval_df)
+        if n == (num_runs-1):
+            report = True
+        else:
+            report = False
+        results = get_results(classification_model_args,params,random_state = random_state+n ,report=report)
         print("results run " + str(n) + ": " + str(results))
         for m in metrics:
             betw_results.setdefault(m,[]).append(results[m])
@@ -200,11 +195,64 @@ def get_final_results(num_runs, classification_model_args, best_params, train_df
     for m in metrics:
         m_list = betw_results[m]
         final_results[m] = round(float(sum(m_list)/len(m_list)),5)
+    final_results['report'] = results['report']
     print(str(final_results))
     return final_results  
-    
 
-################## Create a ClassificationModel
+def lang_dependency_set(test_size, lang):
+    dep_indicies = range(len(lang_indicies[lang]))
+    k = len(lang_indicies[lang]) * test_size
+    dep_test_indicies = random.sample(dep_indicies, int(k))
+    test_indicies = []
+    train_indicies = []    
+    for i in range(len(lang_indicies[lang])):
+        df_index = lang_indicies[lang][i]
+        if i in dep_test_indicies:
+            test_indicies.append(df_index)
+        else:
+            train_indicies.append(df_index)
+     # avoid problem:
+     #  While using new_list = my_list, any modifications to new_list changes my_list everytime. 
+     # --> use list.copy()
+    train_dep_indicies = train_indicies.copy()
+    for l in lang_indicies:
+        if l == lang:
+            continue
+        else:
+            train_indicies.extend(lang_indicies[l])   
+    return train_indicies, train_dep_indicies, test_indicies  
+
+def compare_lang_dependency(test_size, lang):
+    ### split train and test set indicies for 1st and 2nd set up
+    train_indep_indicies, train_dep_indicies, test_indicies = lang_dependency_set(test_size = test_size, lang = lang)
+    ### apply best params and run num_runs times to take the average of the results 
+    # set number of runs
+    num_runs = 5
+    # get results on 1st set up
+    results_dep = get_results(num_runs, classification_model_args, best_params, train_dep_indicies, test_indicies, report= True)
+    # get results on 2nd set up
+    results_indep = get_results(num_runs, classification_model_args, best_params, train_indep_indicies, test_indicies, report= True) 
+    # compare results of 1st and 2nd set up
+    if results_dep[score] > results_indep[score]:
+        dependency_result = 1  # dependent is better
+    else:
+        dependency_result = 0  # independent is better
+    ### save the results 
+    lang_dependency_results = {}
+    lang_dependency_results[lang + "_dependent"] = results_dep
+    lang_dependency_results[lang + "_independent"] = results_indep
+    lang_dependency_results["dependency_result"] = dependency_result
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close()
+    results_object[lang + "_dependency_result"] = lang_dependency_results
+    file = open(results_path,'w+',encoding='utf8')
+    file.write(json.dumps(results_object))
+    file.close()
+    return dependency_result
+
+
+################## Create a ClassificationModel BERT
 '''
 For the purposes of fine-tuning, the authors recommend choosing from the following values (from Appendix A.3 of the BERT paper):
 
@@ -241,9 +289,7 @@ class ModelArgs: (default values for 'args')
     max_seq_length: int = 128
     ...
 '''
-# define tuning parameters and values
-
-
+# define tuning parameters and values BERT
 batch_sizes = [8,16,32]
 batch_sizes = [int(i) for i in batch_sizes]
 learning_rates = [5e-5, 4e-5, 3e-5, 2e-5]
@@ -262,18 +308,52 @@ classification_model_args['model_type'] = model_type
 classification_model_args['model_name'] = model_name
 classification_model_args['use_cuda'] = use_cuda
 
-score = "auprc"  # choose "auprc","auc", "recall", "precision", "accuracy" or "f1", depending which score the evaluation of the best combination has to be based on
+################### load and prepare some DATA ########################################################################################
+# load cleaned labeled data
+df_raw = pd.read_csv('./data/cleaned_labeled_projects.csv',sep='\t', encoding = 'utf-8')
+# Create a new dataframe
+df = df_raw[['final_label', 'project_details','CPV','project_title']].copy()
 
+# load language indicies
+file = open('./data/lang_indicies.json','r',encoding='utf8')
+lang_indicies = json.load(file)
+file.close()
+
+######################################### ***** ADAPT THIS PART ***** ####################################################
+num = 0
+pth = "./models/model_Bert/model_1/"
+model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
+results_path = model_path(num)
+score = "auprc"  # choose "auprc","auc", "recall", "precision", "accuracy" or "f1", depending which score the evaluation of the best combination has to be based on
+################################################# ***** RUN THIS PART ***** ###############################################
 # save results
-results_path = "./model_bert_bert/model_1/results.json"
 results_object={}
 results_object["tune_params"] = modelargs_tuning_grid
 results_object["score"] = score
+if os.path.exists(results_path):
+    bn_list = list(map(path.basename,iglob(pth+"*.json")))
+    num_list = []
+    for bn in bn_list:
+        num_list.extend(int(i) for i in re.findall('\d+', bn))
+    max_num = max(num_list)
+    num = max_num + 1
+    results_path = model_path(num)
+
 with io.open(results_path,'w+',encoding='utf8') as file: 
     json.dump(results_object, file) 
-# returns {param1:value1, param2:value2, ...}, {"auprc":float1, "auc":float2, ... }
-best_params, best_results = get_best_combination_with_results(classification_model_args=classification_model_args, modelargs_tuning_grid=modelargs_tuning_grid, score=score, train_df = train_df, eval_df = eval_df)
+############## get best parameter values along with the results 
+    '''
+    training of 80% of all projects and
+    evaluating of 20% of randomly chosen projects (independently of the language)
+    '''
+#X_train, X_test, y_train, y_test = get_train_test_sets()   
+# Train and Evaluation data needs to be in a Pandas Dataframe of two columns.
+# The first column is the text with type str, and the second column is the label with type int.
+#train_df = pd.DataFrame([[a,b] for a,b in zip(X_train, y_train)])
+#eval_df = pd.DataFrame([[a,b] for a,b in zip(X_test, y_test)])
 
+# RUN
+best_params, best_results = get_best_combination_with_results(classification_model_args=classification_model_args, modelargs_tuning_grid=modelargs_tuning_grid, score=score)
 
 ## check max_len --> length of longest tokenized sentence
 ## check adam properties tuning
@@ -281,18 +361,43 @@ best_params, best_results = get_best_combination_with_results(classification_mod
 ##      for setting max_len and speeding up training time with multiprocessing in conversion from example to feature
 ### change 'label' to 'final_label'
 
+############## OR load the (saved) best results
+with io.open(results_path,'r+',encoding='utf8') as file:
+    results_object = json.load(file)
+
+score_value = 0.0
+best_comb_name = ""
+for name,_ in results_object.items():
+    if 'comb' not in name:
+        continue
+    v = results_object[name]['results'][score]
+    if v > score_value:
+        score_value = v
+        best_comb_name = name
+
+best_params = results_object[best_comb_name]["args_combination"]
+best_results = results_object[best_comb_name]["results"]
+
+################## run 5 times with best parameter values and take the average 
+num_runs = 5
+averaged_results = get_averaged_results(num_runs, classification_model_args, best_params) # apply best params and run num_runs times and take the average of the results as best result
+
+################## save best parameter values and the results 
 
 best_combination = {}
 best_combination["best_params"] = best_params
-num_runs = 5
-final_results = get_final_results(num_runs, classification_model_args, best_params, train_df, eval_df) # apply best params and run num_runs times and take the average of the results as best result
-best_combination["best_results"] = final_results
-with io.open(results_path,'r+',encoding='utf8') as file:
-    results_object = json.load(file)
-    results_object["best_combination"] = best_combination
-    file.seek(0)  # not sure if needed 
-    json.dump(results_object, file)
+best_combination["best_results"] = best_results
+best_combination["best_averaged_results"] = averaged_results
 
+file = open(results_path,'r',encoding='utf8')
+results_object = json.load(file)
+file.close()
+results_object["best_combination"] = best_combination
+file = open(results_path,'w+',encoding='utf8')
+file.write(json.dumps(results_object))
+file.close()
+
+################## OUTPUT the best parameter values and the results
 print("Best parameter values according to " + score + ": \n")
 for param in best_params:
     best_value = best_params[param]

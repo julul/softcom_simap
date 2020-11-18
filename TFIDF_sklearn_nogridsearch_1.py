@@ -160,8 +160,8 @@ def get_results(params_representation, params_classification, classifier, train_
     # ValueError: "After pruning, no terms remain. Try a lower min_df or a higher max_df"
     try:
         features = vectorizer.fit_transform(df['project_details'].tolist()).toarray()
-    except ValueError: # 
-            print("ValueError occurred")
+    except ValueError:  
+            print("ValueError occurred\n")
             return None
     if train_indicies is None:
         X_train, X_test, y_train, y_test = train_test_split(features, df['final_label'], test_size= 0.2, random_state=random_state)
@@ -311,7 +311,7 @@ def get_averaged_results(num_runs, params_representation, params_classification,
             report = True
         else:
             report = False
-        results = get_results(params_representation, params_classification,classifier,train_indicies=train_indicies, test_indicies=test_indicies, random_state = random_state+n, report=report)
+        results = get_results(params_representation, params_classification,classifier, random_state = random_state+n, report=report)
         #print("results run " + str(n) + ": " + str(results))
         for m in metrics:
             betw_results.setdefault(m,[]).append(results[m])
@@ -354,9 +354,9 @@ def compare_lang_dependency(test_size, lang):
     # set number of runs
     num_runs = 5
     # get results on 1st set up
-    results_dep = get_averaged_results(num_runs, best_params_representation,best_params_classification,classifier, train_dep_indicies, test_indicies) 
+    results_dep = get_results(num_runs, best_params_representation,best_params_classification,classifier, train_dep_indicies, test_indicies, report=True) 
     # get results on 2nd set up
-    results_indep = get_averaged_results(num_runs, best_params_representation,best_params_classification,classifier, train_indep_indicies, test_indicies) 
+    results_indep = get_results(num_runs, best_params_representation,best_params_classification,classifier, train_indep_indicies, test_indicies, report= True) 
     # compare results of 1st and 2nd set up
     if results_dep[score] > results_indep[score]:
         dependency_result = 1  # dependent is better
@@ -541,7 +541,7 @@ best_combination = {}
 best_combination["best_params_representation"] = best_params_representation
 best_combination["best_params_classification"] = best_params_classification
 best_combination["best_results"] =  best_results
-best_combination["best_average_results"] = averaged_results
+best_combination["best_averaged_results"] = averaged_results
 
 file = open(results_path,'r',encoding='utf8')
 results_object = json.load(file)
