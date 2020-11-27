@@ -212,10 +212,10 @@ def get_train_test_sets(train_indicies=None, test_indicies=None,test_size= 0.2, 
         y_train = []
         y_test = []
         for i in train_indicies:
-            X_train.append(df[i])
+            X_train.append(df['project_details'][i])
             y_train.append(df['final_label'][i])
         for j in test_indicies:
-            X_test.append(df[j])
+            X_test.append(df['project_details'][j])
             y_test.append(df['final_label'][j])   
     #conversion
     splitted_set = [y_train,X_train,y_test, X_test]
@@ -253,7 +253,7 @@ def get_train_test_sets(train_indicies=None, test_indicies=None,test_size= 0.2, 
 
 
 def get_results(params_wordembeddings, params_classification,name=0,train_indicies=None,test_indicies=None, random_state = 0, report = False):       
-    _, X_test, _, y_test, train_file = get_train_test_sets(train_indicies, test_indicies,test_size= 0.2, random_state=random_state)
+    _, X_test, _, y_test, train_file = get_train_test_sets(train_indicies, test_indicies,test_size= test_size, random_state=random_state)
     model_name = "comb_" + str(name)
     # bin_path = "word_vectors/fasttext/" + model_name + ".bin" 
     vec_path = "word_vectors/fasttext/" + model_name + ".vec" 
@@ -336,7 +336,7 @@ def get_combination_with_results(combination,all_keys, keys_wordembeddings):
     return [[params_wordembeddings,params_classification], results] 
 
 
-def get_best_combination_with_results(param_grid_wordembeddings, param_grid_classification, score):
+def get_best_combination_with_results(param_grid_wordembeddings, param_grid_classification):
     keys_wordembeddings = list(param_grid_wordembeddings.keys())
     values_wordembeddings = list(param_grid_wordembeddings.values())
     keys_classification = list(param_grid_classification.keys())
@@ -362,28 +362,30 @@ def get_best_combination_with_results(param_grid_wordembeddings, param_grid_clas
     return best_params_wordembeddings, best_params_classification, best_results
 
 def get_averaged_results(params_wordembeddings, params_classification,num_runs=5,train_indicies = None, test_indicies = None, report= False):
-    metrics = ["accuracy","precision","recall","auc","auprc","f1"]
+    mets = ["accuracy","precision","recall","auc","auprc","f1"]
     betw_results = {}
     final_results = {}
     random_state = 10
     for n in range(num_runs):
-        if (report == True) and (n < (num_runs-1)):
-            report = False
-        else:
-            report = True
-        results = get_results(params_wordembeddings, params_classification,name = n,random_state = random_state+n ,report=report)
+        if n < (num_runs-1):
+            r = False
+        elif (report == True) and (n == num_runs-1):
+            r = True
+        else: # (report == False) and (n == num_runs-1):
+            r = False
+        results = get_results(params_wordembeddings, params_classification,name = n,train_indicies=train_indicies,test_indicies=test_indicies,random_state = random_state+n ,report=r)
         print("results run " + str(n) + ": " + str(results))
-        for m in metrics:
+        for m in mets:
             betw_results.setdefault(m,[]).append(results[m])
         print("between results : " + str(betw_results))
-    for m in metrics:
+    for m in mets:
         m_list = betw_results[m]
         final_results[m] = round(float(sum(m_list)/len(m_list)),5)
-    final_results['report'] = results['report']
-    print(str(final_results))
+    if report == True:
+        final_results['report'] = results['report']
     return final_results
 
-def lang_dependency_set(test_size, lang):
+def lang_dependency_set(lang, test_size=0.2):
     dep_indicies = range(len(lang_indicies[lang]))
     k = len(lang_indicies[lang]) * test_size
     dep_test_indicies = random.sample(dep_indicies, int(k)) # each time when called --> different set 
@@ -406,21 +408,33 @@ def lang_dependency_set(test_size, lang):
             train_indicies.extend(lang_indicies[l])   
     return train_indicies, train_dep_indicies, test_indicies  
 
-def compare_lang_dependency(test_size, lang, report=False):
+def compare_lang_dependency(lang, test_size=0.2):
     ### split train and test set indicies for 1st and 2nd set up *** each time when called --> different set
     train_indep_indicies, train_dep_indicies, test_indicies = lang_dependency_set(test_size = test_size, lang = lang)
     ### apply best params and run num_runs times to take the average of the results 
-    # set number of runs
+    num_runs = 1
     # get results on 1st set up
-    results_dep = get_averaged_results(best_params_wordembeddings,best_params_classification,train_indicies= train_dep_indicies, test_indicies=test_indicies, report= report) 
+    results_dep = get_averaged_results(best_params_wordembeddings,best_params_classification,num_runs=num_runs,train_indicies= train_dep_indicies, test_indicies=test_indicies, report= True) 
     # get results on 2nd set up
-    results_indep = get_averaged_results(best_params_wordembeddings,best_params_classification, train_indicies=train_indep_indicies, test_indicies= test_indicies, report= report) 
+    results_indep = get_averaged_results(best_params_wordembeddings,best_params_classification,num_runs=num_runs, train_indicies=train_indep_indicies, test_indicies= test_indicies, report= True) 
     # compare results of 1st and 2nd set up
     if results_dep[score] > results_indep[score]:
-        dep_result = 1  # dependent is better
+        dependency_result = 1  # dependent is better
     else:
-        dep_result = 0  # independent is better
-    return dep_result, results_dep, results_indep
+        dependency_result = 0  # independent is better
+    ### save the results 
+    lang_dependency_results = {}
+    lang_dependency_results[lang + "_dependent"] = results_dep
+    lang_dependency_results[lang + "_independent"] = results_indep
+    lang_dependency_results["dependency_result"] = dependency_result
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close()
+    results_object[lang + "_dependency_result"] = lang_dependency_results
+    file = open(results_path,'w+',encoding='utf8')
+    file.write(json.dumps(results_object))
+    file.close()
+    return dependency_result
 
 
 
@@ -529,13 +543,12 @@ with io.open(data_file,'w',encoding='utf8') as f:
 
 
 ######################################### ***** ADAPT THIS PART ***** ####################################################
-#### test for one particular sklearn classification algo
-# choose classifier
 num = 0
 pth = "./models/model_FastText/model_1/"
 model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
 results_path = model_path(num)
 score = "auprc" # choose among 'auprc', 'auc', 'f1', 'accuracy', 'precision', 'recall'
+test_size=0.2
 ################################################# ***** RUN THIS PART ***** ###############################################
 ###### EVENTUALLY REMOVE FILE MANUALLY ######
 # check if file already exists, if yes create new one
@@ -565,13 +578,23 @@ with io.open(results_path,'w+',encoding='utf8') as file:
 best_params_wordembeddings, best_params_classification, best_results = get_best_combination_with_results(param_grid_wordembeddings, param_grid_classification, score)
 
 ############## OR load the (saved) best results
+if os.path.exists(results_path):
+    bn_list = list(map(path.basename,iglob(pth+"*.json")))
+    num_list = []
+    for bn in bn_list:
+        num_list.extend(int(i) for i in re.findall('\d+', bn))
+    max_num = max(num_list)
+    results_path = model_path(max_num)
+
 with io.open(results_path,'r+',encoding='utf8') as file:
     results_object = json.load(file)
 
 score_value = 0.0
 best_comb_name = ""
-for name,_ in results_object.items():
+for name,res in results_object.items():
     if 'comb' not in name:
+        continue
+    if 'results' not in res:
         continue
     v = results_object[name]['results'][score]
     if v > score_value:
@@ -583,11 +606,11 @@ best_params_classification = results_object[best_comb_name]["params_classificati
 best_results = results_object[best_comb_name]["results"]
 
 ################## run 5 times with best parameter values and take the average 
-averaged_results = get_averaged_results(best_params_representation,best_params_classification) 
+averaged_results = get_averaged_results(best_wordembeddings,best_params_classification) 
 
 ################## save best parameter values and the results 
 best_combination = {}
-best_combination["best_params_representation"] = best_params_representation
+best_combination["best_params_wordembeddings"] = best_params_wordembeddings
 best_combination["best_params_classification"] = best_params_classification
 best_combination["best_results"] =  best_results
 best_combination["best_average_results"] = averaged_results
@@ -631,46 +654,16 @@ same for italian, french and english
 
 
 ########## test language (in)dependency and save the results
-metrics = ["accuracy","precision","recall","auc","auprc","f1"]
-betw_results_dep = {}
-betw_results_indep = {}
-final_results = {}
+## set test size
 test_size = 0.2
 languages = ['de','fr','it','en']
 half = int(len(languages)/2) # 2 if len(languages) is 5
 dep_count = 0
-num_runs = 5
-report = False
 for lang in languages:
-    for i in range(num_runs):
-        if i == (num_runs-1):
-            report = True
-        dep_result, results_dep, results_indep = compare_lang_dependency(test_size, lang, report=report) # dep_result returns 1 (dependent is better) or 0 (independent is better)
-        for m in metrics:
-            betw_results_dep.setdefault(m,[]).append(results_dep[m])
-            betw_results_indep.setdefault(m,[]).append(results_indep[m])
-    for m in metrics:
-        m_list_dep = betw_results_dep[m]
-        final_results_dep[m] = round(float(sum(m_list_dep)/len(m_list_dep)),5)
-        m_list_indep = betw_results_indep[m]
-        final_results_indep[m] = round(float(sum(m_list_indep)/len(m_list_indep)),5)
-    final_results_dep['report'] = results_dep['report']
-    final_results_indep['report'] = results_indep['report']
-        ### save the results 
-    lang_dependency_results = {}
-    lang_dependency_results[lang + "_dependent"] = results_dep
-    lang_dependency_results[lang + "_independent"] = results_indep
-    lang_dependency_results["dependency_result"] = dep_result/num_runs
-    file = open(results_path,'r',encoding='utf8')
-    results_object = json.load(file)
-    file.close()
-    results_object[lang + "_dependency_result"] = lang_dependency_results
-    file = open(results_path,'w+',encoding='utf8')
-    file.write(json.dumps(results_object))
-    file.close()
+    dep_result = compare_lang_dependency(lang, test_size=test_size) # returns 1 (dependent is better) or 0 (independent is better)
     dep_count = dep_count + dep_result
 
-overall_dependency_result = dep_result/len(languages)
+overall_dependency_result = dep_count/len(languages)
 ## save the results 
 
 file = open(results_path,'r',encoding='utf8')
@@ -686,7 +679,3 @@ if dep_count > half:
     print("Dependency gives better results: " + str(dep_count) + " out of " + str(len(languages)))
 else:
     print("Dependency does not give better results: " + str(dep_count) + " out of " + str(len(languages)))
-
-
-
-

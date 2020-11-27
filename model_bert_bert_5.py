@@ -18,6 +18,7 @@ from glob import iglob
 from os import path
 from sklearn.model_selection import train_test_split
 import re
+import random
 
 logging.basicConfig(level=logging.INFO)
 transformers_logger = logging.getLogger("transformers")
@@ -48,7 +49,8 @@ def equal(X_test,y_test):
                 c = c + 1
     return X_test_new, y_test_new
 
-def get_train_test_sets(train_indicies=None, test_indicies=None,test_size= 0.2, random_state=0):
+def get_train_test_sets(train_indicies=None, test_indicies=None,test_size=0.2, random_state=0):
+    print("inside train test sets\n")
     if train_indicies is None:
         X_train, X_test, y_train, y_test = train_test_split(df['project_details'], df['final_label'], test_size= test_size, random_state=random_state)
     else:
@@ -57,10 +59,10 @@ def get_train_test_sets(train_indicies=None, test_indicies=None,test_size= 0.2, 
         y_train = []
         y_test = []
         for i in train_indicies:
-            X_train.append(df[i])
+            X_train.append(df['project_details'][i])
             y_train.append(df['final_label'][i])
         for j in test_indicies:
-            X_test.append(df[j])
+            X_test.append(df['project_details'][j])
             y_test.append(df['final_label'][j])   
     #conversion
     splitted_set = [y_train,X_train,y_test, X_test]
@@ -83,7 +85,8 @@ def get_train_test_sets(train_indicies=None, test_indicies=None,test_size= 0.2, 
 
 
 def get_results(classification_model_args,args_combination, train_indicies = None, test_indicies = None, random_state = 0, report = False):
-    X_train, X_test, y_train, y_test = get_train_test_sets(train_indicies, test_indicies,test_size= 0.2, random_state=random_state)    
+    print("before train test sets\n")
+    X_train, X_test, y_train, y_test = get_train_test_sets(train_indicies, test_indicies,test_size= test_size, random_state=random_state)    
     # Train and Evaluation data needs to be in a Pandas Dataframe of two columns.
     # The first column is the text with type str, and the second column is the label with type int.
     train_df = pd.DataFrame([[a,b] for a,b in zip(X_train, y_train)])
@@ -95,13 +98,15 @@ def get_results(classification_model_args,args_combination, train_indicies = Non
     ################## Train the model
     model.train_model(train_df)
     ################## Evaluate the model
-    metrics = {}
-    metrics["accuracy"] = sklearn.metrics.accuracy_score
-    metrics["precision"] = sklearn.metrics.precision_score
-    metrics["recall"] = sklearn.metrics.recall_score
-    metrics["auc"] = sklearn.metrics.roc_auc_score
-    metrics["auprc"] = sklearn.metrics.average_precision_score
-    metrics["f1"] = sklearn.metrics.f1_score
+    mets = {}
+    mets["accuracy"] = sklearn.metrics.accuracy_score
+    mets["precision"] = sklearn.metrics.precision_score
+    mets["recall"] = sklearn.metrics.recall_score
+    mets["auc"] = sklearn.metrics.roc_auc_score
+    mets["auprc"] = sklearn.metrics.average_precision_score
+    mets["f1"] = sklearn.metrics.f1_score
+    if report == True:
+        mets["report"] = sklearn.metrics.classification_report
     '''
     eval_model
             Returns:
@@ -109,7 +114,7 @@ def get_results(classification_model_args,args_combination, train_indicies = Non
             model_outputs: List of model outputs for each row in eval_df
             wrong_preds: List of InputExample objects corresponding to each incorrect prediction by the model
     '''
-    result, _ ,_ = model.eval_model(eval_df= eval_df, **metrics)
+    result, _ ,_ = model.eval_model(eval_df= eval_df, **mets)
     for key,value in result.items():
         if isinstance(value,(float,numpy.float64)):
             result[key] = round(float(value),5) # convert to float in case it is of type numpy.float64 to be json compatible
@@ -147,7 +152,7 @@ def get_combination_with_results(combination, combination_keys, classification_m
     return [args_combination, results] 
 
 
-def get_best_combination_with_results(classification_model_args, modelargs_tuning_grid, score):    
+def get_best_combination_with_results(classification_model_args, modelargs_tuning_grid):    
     print('A')
     modelargs_tuning_values = list(modelargs_tuning_grid.values())
     combination_keys = list(modelargs_tuning_grid.keys())
@@ -177,29 +182,33 @@ def get_best_combination_with_results(classification_model_args, modelargs_tunin
     return best_combination, best_results  
     
 
-def get_averaged_results(num_runs, classification_model_args, params, train_indicies=None, test_indicies=None):
-    metrics = ["accuracy","precision","recall","auc","auprc","f1"]
+def get_averaged_results(classification_model_args, params, num_runs=5, train_indicies=None, test_indicies=None, report=False):
+    mets = ["accuracy","precision","recall","auc","auprc","f1"]
     betw_results = {}
     final_results = {}
     random_state = 10
     for n in range(num_runs):
-        if n == (num_runs-1):
-            report = True
-        else:
-            report = False
-        results = get_results(classification_model_args,params,random_state = random_state+n ,report=report)
+        if n < (num_runs-1):
+            r = False
+        elif (report == True) and (n == num_runs-1):
+            r = True
+        else: # (report == False) and (n == num_runs-1):
+            r = False
+        print("before get results\n")
+        results = get_results(classification_model_args,params, train_indicies=train_indicies,test_indicies= test_indicies,random_state = random_state+n ,report=r)
         print("results run " + str(n) + ": " + str(results))
-        for m in metrics:
+        for m in mets:
             betw_results.setdefault(m,[]).append(results[m])
         print("between results : " + str(betw_results))
-    for m in metrics:
+    for m in mets:
         m_list = betw_results[m]
         final_results[m] = round(float(sum(m_list)/len(m_list)),5)
-    final_results['report'] = results['report']
+    if report == True:
+        final_results['report'] = results['report']
     print(str(final_results))
     return final_results  
 
-def lang_dependency_set(test_size, lang):
+def lang_dependency_set(lang, test_size):
     dep_indicies = range(len(lang_indicies[lang]))
     k = len(lang_indicies[lang]) * test_size
     dep_test_indicies = random.sample(dep_indicies, int(k))
@@ -222,17 +231,22 @@ def lang_dependency_set(test_size, lang):
             train_indicies.extend(lang_indicies[l])   
     return train_indicies, train_dep_indicies, test_indicies  
 
-def compare_lang_dependency(test_size, lang):
+def compare_lang_dependency(lang,test_size=0.2):
     ### split train and test set indicies for 1st and 2nd set up
-    train_indep_indicies, train_dep_indicies, test_indicies = lang_dependency_set(test_size = test_size, lang = lang)
+    train_indep_indicies, train_dep_indicies, test_indicies = lang_dependency_set(lang = lang, test_size = test_size)
+    print("lang : " + lang + "\n")
+    print("train_indep_indicies length: " + str(len(train_indep_indicies)) + "\n")
+    print("train_dep_indicies length: " + str(len(train_dep_indicies)) + "\n")
+    print("test_indicies length: " + str(len(test_indicies)) + "\n")
     ### apply best params and run num_runs times to take the average of the results 
-    # set number of runs
-    num_runs = 5
+    num_runs = 1
     # get results on 1st set up
-    results_dep = get_results(num_runs, classification_model_args, best_params, train_dep_indicies, test_indicies, report= True)
+    results_dep = get_averaged_results(classification_model_args, best_params,num_runs=num_runs, train_indicies=train_dep_indicies, test_indicies=test_indicies, report= True)
     # get results on 2nd set up
-    results_indep = get_results(num_runs, classification_model_args, best_params, train_indep_indicies, test_indicies, report= True) 
+    results_indep = get_averaged_results(classification_model_args, best_params,num_runs=num_runs, train_indicies=train_indep_indicies, test_indicies=test_indicies, report= True) 
     # compare results of 1st and 2nd set up
+    print("results_dep: " + str(results_dep) + "\n")
+    print("results_indep: " + str(results_indep) + "\n")
     if results_dep[score] > results_indep[score]:
         dependency_result = 1  # dependent is better
     else:
@@ -325,6 +339,7 @@ pth = "./models/model_Bert/model_1/"
 model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
 results_path = model_path(num)
 score = "auprc"  # choose "auprc","auc", "recall", "precision", "accuracy" or "f1", depending which score the evaluation of the best combination has to be based on
+test_size= 0.2
 ################################################# ***** RUN THIS PART ***** ###############################################
 # save results
 results_object={}
@@ -353,7 +368,7 @@ with io.open(results_path,'w+',encoding='utf8') as file:
 #eval_df = pd.DataFrame([[a,b] for a,b in zip(X_test, y_test)])
 
 # RUN
-best_params, best_results = get_best_combination_with_results(classification_model_args=classification_model_args, modelargs_tuning_grid=modelargs_tuning_grid, score=score)
+best_params, best_results = get_best_combination_with_results(classification_model_args=classification_model_args, modelargs_tuning_grid=modelargs_tuning_grid)
 
 ## check max_len --> length of longest tokenized sentence
 ## check adam properties tuning
@@ -362,13 +377,23 @@ best_params, best_results = get_best_combination_with_results(classification_mod
 ### change 'label' to 'final_label'
 
 ############## OR load the (saved) best results
+if os.path.exists(results_path):
+    bn_list = list(map(path.basename,iglob(pth+"*.json")))
+    num_list = []
+    for bn in bn_list:
+        num_list.extend(int(i) for i in re.findall('\d+', bn))
+    max_num = max(num_list)
+    results_path = model_path(max_num)
+
 with io.open(results_path,'r+',encoding='utf8') as file:
     results_object = json.load(file)
 
 score_value = 0.0
 best_comb_name = ""
-for name,_ in results_object.items():
+for name,res in results_object.items():
     if 'comb' not in name:
+        continue
+    if 'results' not in res:
         continue
     v = results_object[name]['results'][score]
     if v > score_value:
@@ -379,8 +404,7 @@ best_params = results_object[best_comb_name]["args_combination"]
 best_results = results_object[best_comb_name]["results"]
 
 ################## run 5 times with best parameter values and take the average 
-num_runs = 5
-averaged_results = get_averaged_results(num_runs, classification_model_args, best_params) # apply best params and run num_runs times and take the average of the results as best result
+averaged_results = get_averaged_results(classification_model_args, best_params) # apply best params and run num_runs times and take the average of the results as best result
 
 ################## save best parameter values and the results 
 
@@ -404,10 +428,42 @@ for param in best_params:
     print(param + " : " + str(best_value) + "\n")
 print("\n")
 
-print("Final evaluation results after running " + str(num_runs) + " times and taking the average: \n")
-for metric in final_results:
+print("Final averaged evaluation results after running " + str(num_runs) + " times and taking the average: \n")
+for metric in averaged_results:
     result = best_results[metric]
     print(metric + " : " + str(result) + "\n")
+##################################### compare LANGUAGE DEPENDENCY with LANGUAGE INDEPENDENCY #######################################
+'''
+Compare 1st set up with 2nd set up
+- 1st set up: train on 80% german, evaluate on 20% german
+- 2nd set up: train on 100% italian, 100% french, 100% english, 80% german all together at once. evaluate on *the same* 20% german
+same for italian, french and english
 
+'''
+########## test language (in)dependency and save the results
+## set test size
+test_size = 0.2
+languages = ['de','fr','it','en']
+half = int(len(languages)/2) # 2 if len(languages) is 5
+dep_count = 0
+for lang in languages:
+    dep_result = compare_lang_dependency(lang,test_size=test_size) # returns 1 (dependent is better) or 0 (independent is better)
+    dep_count = dep_count + dep_result
+
+overall_dependency_result = dep_count/len(languages)
+
+file = open(results_path,'r',encoding='utf8')
+results_object = json.load(file)
+file.close()
+results_object["overall_dependency_result"] = overall_dependency_result
+file = open(results_path,'w+',encoding='utf8')
+file.write(json.dumps(results_object))
+file.close()
+
+## output the results
+if dep_count > half:
+    print("Dependency gives better results: " + str(dep_count) + " out of " + str(len(languages)))
+else:
+    print("Dependency does not give better results: " + str(dep_count) + " out of " + str(len(languages)))
 
 

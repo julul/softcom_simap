@@ -95,6 +95,36 @@ def equal(X_test,y_test):
                 c = c + 1
     return X_test_new, y_test_new
 
+def get_train_test_sets(features,train_indicies=None, test_indicies=None,test_size= 0.2, random_state=0):
+    if train_indicies is None:
+        X_train, X_test, y_train, y_test = train_test_split(features, df['final_label'], test_size= test_size, random_state=random_state)
+    else:
+        X_train= []
+        X_test = []
+        y_train = []
+        y_test = []
+        for i in train_indicies:
+            X_train.append(features[i])
+            y_train.append(df['final_label'][i])
+        for j in test_indicies:
+            X_test.append(features[j])
+            y_test.append(df['final_label'][j])   
+    #conversion
+    splitted_set = [y_train,X_train,y_test, X_test]
+    for p in range(len(splitted_set)):
+        if isinstance(splitted_set[p], list):
+            pass
+        else:
+            splitted_set[p] = splitted_set[p].tolist()
+    y_train = splitted_set[0]
+    X_train = splitted_set[1]
+    y_test = splitted_set[2]
+    X_test = splitted_set[3]
+    ### make (number of yes) == (number of no) in test set
+    X_test_1, y_test_1 = equal(X_test,y_test)
+    X_test = X_test_1.copy()
+    y_test = y_test_1.copy()
+    return X_train, X_test, y_train, y_test
 
 def find_optimal_cutoff(target, predicted):
     """ Find the optimal probability cutoff point for a classification model
@@ -153,7 +183,7 @@ perform(sayhello, **params)
 '''
 
 # see https://stackoverflow.com/questions/47895434/how-to-make-pipeline-for-multiple-dataframe-columns
-def get_results(params_representation, params_classification, classifier, train_indicies=None, test_indicies=None, random_state = 0, report = False):
+def get_results(params_representation, params_classification, classifier, train_indicies=None, test_indicies=None, test_size=0.2, random_state = 0, report = False):
     vectorizer = TfidfVectorizer(sublinear_tf=True, **params_representation)
     ##### return no results if ValueError should occurr (should not anymore actually)
     # ValueError: "max_df corresponds to < documents than min_df"
@@ -163,34 +193,7 @@ def get_results(params_representation, params_classification, classifier, train_
     except ValueError:  
             print("ValueError occurred\n")
             return None
-    if train_indicies is None:
-        X_train, X_test, y_train, y_test = train_test_split(features, df['final_label'], test_size= 0.2, random_state=random_state)
-    else:
-        X_train= []
-        X_test = []
-        y_train = []
-        y_test = []
-        for i in train_indicies:
-            X_train.append(features[i])
-            y_train.append(df['final_label'][i])
-        for j in test_indicies:
-            X_test.append(features[j])
-            y_test.append(df['final_label'][j])   
-    #conversion
-    splitted_set = [y_train,X_train,y_test, X_test]
-    for p in range(len(splitted_set)):
-        if isinstance(splitted_set[p], list):
-            pass
-        else:
-            splitted_set[p] = splitted_set[p].tolist()
-    y_train = splitted_set[0]
-    X_train = splitted_set[1]
-    y_test = splitted_set[2]
-    X_test = splitted_set[3]
-    ### make (number of yes) == (number of no) in test set
-    X_test_1, y_test_1 = equal(X_test,y_test)
-    X_test = X_test_1.copy()
-    y_test = y_test_1.copy()
+    X_train, X_test, y_train, y_test = get_train_test_sets(features,train_indicies=train_indicies, test_indicies=test_indicies,test_size=test_size, random_state=random_state)
     ### apply hyperparameter and train model
     classification_model = perform(classifier, **params_classification) # e.g. classifier == LogisticRegression
     classification_model.fit(X_train, y_train)
@@ -232,7 +235,7 @@ def get_results(params_representation, params_classification, classifier, train_
     print(results)
     return results
 
-def get_combination_with_results(combination,all_keys, keys_representation, classifier):
+def get_combination_with_results(combination,all_keys, keys_representation, classifier,test_size=0.2):
     params_representation = {}
     params_classification = {}
     d1={}
@@ -245,7 +248,7 @@ def get_combination_with_results(combination,all_keys, keys_representation, clas
         else:
             params_classification[a] = b
     print("1a\n")
-    results = get_results(params_representation, params_classification, classifier) # returns dict of accuracy, precision, recall, auc, auprc, f1
+    results = get_results(params_representation, params_classification, classifier,test_size=test_size) # returns dict of accuracy, precision, recall, auc, auprc, f1
     print("1b\n")
     d1['params_representation'] = params_representation
     d2['params_classification'] = params_classification
@@ -272,7 +275,7 @@ def get_combination_with_results(combination,all_keys, keys_representation, clas
     return [[params_representation,params_classification], results] 
 
 
-def get_best_combination_with_results(param_grid_representation, param_grid_classification, score, classifier):
+def get_best_combination_with_results(param_grid_representation, param_grid_classification, score, classifier,test_size=0.2):
     keys_representation = list(param_grid_representation.keys())
     values_representation = list(param_grid_representation.values())
     keys_classification = list(param_grid_classification.keys())
@@ -286,7 +289,7 @@ def get_best_combination_with_results(param_grid_representation, param_grid_clas
     print("B\n")
     pool = multiprocessing.Pool(processes=num_cores)
     print("C\n")
-    f=partial(get_combination_with_results, all_keys=all_keys, keys_representation=keys_representation, classifier=classifier) 
+    f=partial(get_combination_with_results, all_keys=all_keys, keys_representation=keys_representation, classifier=classifier, test_size=test_size) 
     print("D\n")
     list_of_combination_results = pool.map(f, all_combinations) #returns list of [[params_representation_dict,params_classification_dict], results] 
     print("E\n")
@@ -301,29 +304,32 @@ def get_best_combination_with_results(param_grid_representation, param_grid_clas
     return best_params_representation, best_params_classification, best_results
 
 
-def get_averaged_results(num_runs, params_representation, params_classification,classifier,train_indicies=None, test_indicies=None ):
-    metrics = ["accuracy","precision","recall","auc","auprc","f1"]
+def get_averaged_results(params_representation, params_classification,classifier,num_runs=5,train_indicies=None, test_indicies=None,test_size=0.2, report=False):
+    mets = ["accuracy","precision","recall","auc","auprc","f1"]
     betw_results = {}
     final_results = {}
     random_state = 10
-    for n in range(num_runs):
-        if n == (num_runs-1):
-            report = True
-        else:
-            report = False
-        results = get_results(params_representation, params_classification,classifier, random_state = random_state+n, report=report)
+    for n in range(num_runs): # make report for the last run only
+        if n < (num_runs-1):
+            r = False
+        elif (report == True) and (n == num_runs-1):
+            r = True
+        else : # (report == False) and (n == num_runs-1)
+            r = False
+        results = get_results(params_representation, params_classification,classifier,train_indicies=train_indicies,test_indicies= test_indicies,test_size=test_size,random_state = random_state+n, report=r)
         #print("results run " + str(n) + ": " + str(results))
-        for m in metrics:
+        for m in mets:
             betw_results.setdefault(m,[]).append(results[m])
         #print("between results : " + str(betw_results))
-    for m in metrics:
+    for m in mets:
         m_list = betw_results[m]
         final_results[m] = round(float(sum(m_list)/len(m_list)),5)
-    final_results['report'] = results['report']
-    print(str(final_results))
+    if report == True:
+        final_results['report'] = results['report']
+    #print(str(final_results))
     return final_results
 
-def lang_dependency_set(test_size, lang):
+def lang_dependency_set(lang, test_size=0.2):
     dep_indicies = range(len(lang_indicies[lang]))
     k = len(lang_indicies[lang]) * test_size
     dep_test_indicies = random.sample(dep_indicies, int(k))
@@ -347,17 +353,23 @@ def lang_dependency_set(test_size, lang):
     return train_indicies, train_dep_indicies, test_indicies  
 
 
-def compare_lang_dependency(test_size, lang):
+def compare_lang_dependency(lang,test_size=0.2):
     ### split train and test set indicies for 1st and 2nd set up
-    train_indep_indicies, train_dep_indicies, test_indicies = lang_dependency_set(test_size = test_size, lang = lang)
+    train_indep_indicies, train_dep_indicies, test_indicies = lang_dependency_set(lang = lang, test_size = test_size)
+    print("lang : " + lang + "\n")
+    print("train_indep_indicies length: " + str(len(train_indep_indicies)) + "\n")
+    print("train_dep_indicies length: " + str(len(train_dep_indicies)) + "\n")
+    print("test_indicies length: " + str(len(test_indicies)) + "\n")
     ### apply best params and run num_runs times to take the average of the results 
     # set number of runs
-    num_runs = 5
+    num_runs = 1
     # get results on 1st set up
-    results_dep = get_results(num_runs, best_params_representation,best_params_classification,classifier, train_dep_indicies, test_indicies, report=True) 
+    results_dep = get_averaged_results(best_params_representation,best_params_classification,classifier,num_runs=num_runs,train_indicies=train_dep_indicies, test_indicies=test_indicies, report=True) 
     # get results on 2nd set up
-    results_indep = get_results(num_runs, best_params_representation,best_params_classification,classifier, train_indep_indicies, test_indicies, report= True) 
+    results_indep = get_averaged_results(best_params_representation,best_params_classification,classifier, num_runs=num_runs, train_indicies=train_indep_indicies, test_indicies=test_indicies, report= True) 
     # compare results of 1st and 2nd set up
+    print("results_dep: " + str(results_dep) + "\n")
+    print("results_indep: " + str(results_indep) + "\n")
     if results_dep[score] > results_indep[score]:
         dependency_result = 1  # dependent is better
     else:
@@ -482,7 +494,7 @@ file.close()
 param_grid_classification = param_grid_lg # choose among param_grid_lg, param_grid_rf, param_grid_mnb, param_grid_lsvc
 classifier = LogisticRegression  # choose respectively among LogisticRegression, RandomForestClassifier, MultinomialNB, LinearSVC 
 num = 0
-pth = "./models/model_TFIDF_LogisticRegression/model_1/"
+pth = "./models/model_TFIDF_LogisticRegression/model_1/" # adapt accordingly among LogisticRegression, RandomForestClassifier, MultinomialNB, LinearSVC resp.
 model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
 results_path = model_path(num)
 score = "auprc" # choose among 'auprc', 'auc', 'f1', 'accuracy', 'precision', 'recall'
@@ -514,13 +526,23 @@ with io.open(results_path,'w+',encoding='utf8') as file:
 best_params_representation, best_params_classification, best_results = get_best_combination_with_results(param_grid_tfidf, param_grid_classification, score, classifier)
 
 ############## OR load the (saved) best results
+if os.path.exists(results_path):
+    bn_list = list(map(path.basename,iglob(pth+"*.json")))
+    num_list = []
+    for bn in bn_list:
+        num_list.extend(int(i) for i in re.findall('\d+', bn))
+    max_num = max(num_list)
+    results_path = model_path(max_num)
+
 with io.open(results_path,'r+',encoding='utf8') as file:
     results_object = json.load(file)
 
 score_value = 0.0
 best_comb_name = ""
-for name,_ in results_object.items():
+for name,res in results_object.items():
     if 'comb' not in name:
+        continue
+    if 'results' not in res:
         continue
     v = results_object[name]['results'][score]
     if v > score_value:
@@ -533,8 +555,8 @@ best_params_classification = results_object[best_comb_name]["params_classificati
 best_results = results_object[best_comb_name]["results"]
 
 ################## run 5 times with best parameter values and take the average 
-num_runs = 5
-averaged_results = get_averaged_results(num_runs, best_params_representation,best_params_classification,classifier) # apply best params and run num_runs times and take the average of the results as best result
+
+averaged_results = get_averaged_results(best_params_representation,best_params_classification,classifier) # apply best params and run num_runs times and take the average of the results as best result
 
 ################## save best parameter values and the results 
 best_combination = {}
@@ -589,7 +611,7 @@ languages = ['de','fr','it','en']
 half = int(len(languages)/2) # 2 if len(languages) is 5
 dep_count = 0
 for lang in languages:
-    dep_result = compare_lang_dependency(test_size, lang) # returns 1 (dependent is better) or 0 (independent is better)
+    dep_result = compare_lang_dependency(lang, test_size=test_size) # returns 1 (dependent is better) or 0 (independent is better)
     dep_count = dep_count + dep_result
 
 overall_dependency_result = dep_count/len(languages)
