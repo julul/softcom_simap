@@ -12,6 +12,7 @@ import itertools
 import time
 from random import randint
 from multiprocessing.pool import ThreadPool
+from multiprocessing import cpu_count
 import numpy
 import os, os.path
 from glob import iglob
@@ -49,7 +50,7 @@ def equal(X_test,y_test):
                 c = c + 1
     return X_test_new, y_test_new
 
-def get_train_test_sets(train_indicies=None, test_indicies=None,test_size=0.2, random_state=0):
+def get_train_test_sets(train_indicies=None, test_indicies=None,test_size=0.1, random_state=0):
     print("inside train test sets\n")
     if train_indicies is None:
         X_train, X_test, y_train, y_test = train_test_split(df['project_details'], df['final_label'], test_size= test_size, random_state=random_state)
@@ -84,7 +85,7 @@ def get_train_test_sets(train_indicies=None, test_indicies=None,test_size=0.2, r
 
 
 
-def get_results(classification_model_args,args_combination, train_indicies = None, test_indicies = None, random_state = 0, report = False):
+def get_results(classification_model_args,args_combination, train_indicies = None, test_indicies = None, test_size=0.1, random_state = 0, report = False):
     print("before train test sets\n")
     X_train, X_test, y_train, y_test = get_train_test_sets(train_indicies, test_indicies,test_size= test_size, random_state=random_state)    
     # Train and Evaluation data needs to be in a Pandas Dataframe of two columns.
@@ -208,7 +209,7 @@ def get_averaged_results(classification_model_args, params, num_runs=5, train_in
     print(str(final_results))
     return final_results  
 
-def lang_dependency_set(lang, test_size):
+def lang_dependency_set(lang, test_size=0.1):
     dep_indicies = range(len(lang_indicies[lang]))
     k = len(lang_indicies[lang]) * test_size
     dep_test_indicies = random.sample(dep_indicies, int(k))
@@ -231,7 +232,7 @@ def lang_dependency_set(lang, test_size):
             train_indicies.extend(lang_indicies[l])   
     return train_indicies, train_dep_indicies, test_indicies  
 
-def compare_lang_dependency(lang,test_size=0.2):
+def compare_lang_dependency(lang,test_size=0.1):
     ### split train and test set indicies for 1st and 2nd set up
     train_indep_indicies, train_dep_indicies, test_indicies = lang_dependency_set(lang = lang, test_size = test_size)
     print("lang : " + lang + "\n")
@@ -302,17 +303,30 @@ class ModelArgs: (default values for 'args')
     train_batch_size: int = 8
     max_seq_length: int = 128
     ...
+    process_count: cpu_count() - 2 if cpu_count() > 2 else 1
+        Number of cpu cores (processes) to use when converting examples to features.
+        Default is (number of cores - 2) or 1 if (number of cores <= 2)
+    use_multiprocessing: True
+      (If True, multiprocessing will be used when converting data into features.
+       Disabling can reduce memory usage, but may substantially slow down processing.)
+
 '''
 # define tuning parameters and values BERT
-batch_sizes = [8,16,32]
-batch_sizes = [int(i) for i in batch_sizes]
+batch_sizes = [int(i) for i in [8,16,32]]
 learning_rates = [5e-5, 4e-5, 3e-5, 2e-5]
-epoch_numbers = [1,2,3,4]
-epoch_numbers = [int(i) for i in epoch_numbers]
+epoch_numbers = [int(i) for i in [1,2,3,4]]
+# For any BERT model, the maximum sequence length after tokenization is 512
+max_seq_length = [512]  # default 128
+process_count= [cpu_count() - 2 if cpu_count() > 2 else 1] # default
+use_multiprocessing = [True] # default
+
 modelargs_tuning_grid = {}
 modelargs_tuning_grid['learning_rate'] = learning_rates
 modelargs_tuning_grid['train_batch_size'] = batch_sizes
 modelargs_tuning_grid['num_train_epochs'] = epoch_numbers
+modelargs_tuning_grid['max_seq_length'] = max_seq_length
+modelargs_tuning_grid['process_count'] = process_count
+modelargs_tuning_grid['use_multiprocessing'] = use_multiprocessing
 
 model_type = 'distilbert'
 model_name = 'distilbert-base-multilingual-cased'
@@ -339,7 +353,6 @@ pth = "./models/model_Bert/model_1/"
 model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
 results_path = model_path(num)
 score = "auprc"  # choose "auprc","auc", "recall", "precision", "accuracy" or "f1", depending which score the evaluation of the best combination has to be based on
-test_size= 0.2
 ################################################# ***** RUN THIS PART ***** ###############################################
 # save results
 results_object={}
@@ -358,8 +371,8 @@ with io.open(results_path,'w+',encoding='utf8') as file:
     json.dump(results_object, file) 
 ############## get best parameter values along with the results 
     '''
-    training of 80% of all projects and
-    evaluating of 20% of randomly chosen projects (independently of the language)
+    training of 90% of all projects and
+    evaluating of 10% of randomly chosen projects (independently of the language)
     '''
 #X_train, X_test, y_train, y_test = get_train_test_sets()   
 # Train and Evaluation data needs to be in a Pandas Dataframe of two columns.
