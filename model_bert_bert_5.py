@@ -1,5 +1,5 @@
 # ref: https://medium.com/swlh/a-simple-guide-on-using-bert-for-text-classification-bbf041ac8d04
-
+# https://github.com/ThilinaRajapakse/simpletransformers/issues/30
 from simpletransformers.classification import ClassificationModel
 import pandas as pd
 import logging
@@ -11,15 +11,32 @@ from functools import partial
 import itertools
 import time
 from random import randint
+from sklearn import metrics
 from multiprocessing.pool import ThreadPool
 from multiprocessing import cpu_count
-import numpy
+import numpy as np
 import os, os.path
 from glob import iglob
 from os import path
 from sklearn.model_selection import train_test_split
 import re
 import random
+from numpy import argmax
+from numpy import sqrt
+from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import precision_score
+from sklearn.metrics import recall_score
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import average_precision_score
+from sklearn.metrics import recall_score
+from sklearn.metrics import f1_score
+from sklearn.metrics import roc_curve
+from sklearn.metrics import recall_score
+from sklearn.metrics import confusion_matrix
+from imblearn.metrics import geometric_mean_score
+from sklearn.metrics import classification_report
+from sklearn.utils.extmath import softmax
 
 logging.basicConfig(level=logging.INFO)
 transformers_logger = logging.getLogger("transformers")
@@ -83,9 +100,47 @@ def get_train_test_sets(train_indicies=None, test_indicies=None,test_size=0.1, r
     
     return X_train, X_test, y_train, y_test
 
+def find_best_prc_threshold(target, predicted):
+    #https://machinelearningmastery.com/threshold-moving-for-imbalanced-classification/
+    # calculate pr-curve
+    precision, recall, thresholds = precision_recall_curve(target, predicted)
+    # convert to f score
+    fscores = (2 * precision * recall) / (precision + recall)
+    # locate the index of the largest f score
+    ix = argmax(fscores) 
+    best_threshold = thresholds[ix]
+    best_fscore = fscores[ix]
+    print('Best prc Threshold=%f, F-Score=%.3f' % (best_threshold, best_fscore))
+    return best_threshold, best_fscore
 
 
-def get_results(classification_model_args,args_combination, train_indicies = None, test_indicies = None, test_size=0.1, random_state = 0, report = False):
+def find_best_roc_threshold(target, predicted):
+    #https://machinelearningmastery.com/threshold-moving-for-imbalanced-classification/
+    # calculate roc-curve
+    fpr, tpr, thresholds = roc_curve(target, predicted)
+    # calculate the g-mean for each threshold
+    gmeans = sqrt(tpr * (1-fpr))
+    # locate the index of the largest g-mean
+    ix = argmax(gmeans)
+    best_threshold = thresholds[ix]
+    best_gmean = gmeans[ix]
+    print('Best roc Threshold=%f, G-Mean=%.3f' % (best_threshold, best_gmean))
+    return best_threshold, best_gmean
+
+def get_predictions(threshold, prediction_scores):
+    """ Apply the threshold to the prediction probability scores
+        and return the resulting label predictions
+    """
+    predictions = []
+    for score in prediction_scores:
+        if score >= threshold:
+            predictions.append(1)
+        elif score < threshold:
+            predictions.append(0)
+    return predictions
+
+
+def get_results(classification_model_args,args_combination, train_indicies = None, test_indicies = None, test_size=0.1, random_state = 0, report = False, curve=False):
     print("before train test sets\n")
     X_train, X_test, y_train, y_test = get_train_test_sets(train_indicies, test_indicies,test_size= test_size, random_state=random_state)    
     # Train and Evaluation data needs to be in a Pandas Dataframe of two columns.
@@ -99,15 +154,6 @@ def get_results(classification_model_args,args_combination, train_indicies = Non
     ################## Train the model
     model.train_model(train_df)
     ################## Evaluate the model
-    mets = {}
-    mets["accuracy"] = sklearn.metrics.accuracy_score
-    mets["precision"] = sklearn.metrics.precision_score
-    mets["recall"] = sklearn.metrics.recall_score
-    mets["auc"] = sklearn.metrics.roc_auc_score
-    mets["auprc"] = sklearn.metrics.average_precision_score
-    mets["f1"] = sklearn.metrics.f1_score
-    if report == True:
-        mets["report"] = sklearn.metrics.classification_report
     '''
     eval_model
             Returns:
@@ -115,14 +161,77 @@ def get_results(classification_model_args,args_combination, train_indicies = Non
             model_outputs: List of model outputs for each row in eval_df
             wrong_preds: List of InputExample objects corresponding to each incorrect prediction by the model
     '''
-    result, _ ,_ = model.eval_model(eval_df= eval_df, **mets)
-    for key,value in result.items():
-        if isinstance(value,(float,numpy.float64)):
-            result[key] = round(float(value),5) # convert to float in case it is of type numpy.float64 to be json compatible
-        elif isinstance(value,numpy.int64):
-            result[key] = int(value) # convert to int in case it is of type numpy.int64 to be json compatible
-    return result
-
+    result, model_outputs ,_ = model.eval_model(eval_df= eval_df)
+    print(str(result) + "\n")
+    print(str(model_outputs) + "\n")
+    '''
+    https://github.com/ThilinaRajapakse/simpletransformers/issues/30
+    https://www.reddit.com/r/LanguageTechnology/comments/d8befe/understanding_bert_prediction_output_for/
+    model_outputs:
+    List of log probability predictions for all samples, with the predicted probability (by applying the sigmoid function) for each label.
+    1st position negative and 2nd position positive.
+    model_outputs = [[prob_for_0 prob_for_1],[prob_for_0 prob_for_1], ...]
+    '''
+    ## make model_outputs to scores
+    probs = softmax(model_outputs.astype(np.double))
+    y_scores = probs[:,1] # 2nd element gives probability for positive class   
+    # find optimal probability threshold in pr-curve and roc_curve
+    best_prc_threshold, best_fscore = find_best_prc_threshold(y_test, y_scores)
+    best_roc_threshold, best_gmean = find_best_roc_threshold(y_test, y_scores)
+    # apply optimal pr-curve and roc_curve threshold to the prediction probability and get label predictions
+    y_prc_pred = get_predictions(best_prc_threshold, y_scores)
+    y_roc_pred = get_predictions(best_roc_threshold, y_scores)
+    ################## Evaluation
+    ## based on threshold with best fscore in precision-recall-curve
+    accuracy_prc = accuracy_score(y_test, y_prc_pred)
+    precision_prc = precision_score(y_test, y_prc_pred)
+    recall_prc = recall_score(y_test, y_prc_pred)
+    f1_prc = f1_score(y_test, y_prc_pred)
+    gmean_prc = geometric_mean_score(y_test, y_prc_pred)
+    tn_prc, fp_prc, fn_prc, tp_prc = confusion_matrix(y_test, y_prc_pred).ravel()
+    ## based on threshold with best gmean in fpr-tpr-curve (or roc-curve)
+    accuracy_roc = accuracy_score(y_test, y_roc_pred)
+    precision_roc = precision_score(y_test, y_roc_pred)
+    recall_roc = recall_score(y_test, y_roc_pred)
+    f1_roc = f1_score(y_test, y_roc_pred)
+    gmean_roc = geometric_mean_score(y_test, y_roc_pred)
+    tn_roc, fp_roc, fn_roc, tp_roc = confusion_matrix(y_test, y_roc_pred).ravel()    
+    if curve == True:
+        roc_curve = metrics.roc_curve(y_test, y_scores, pos_label=1)
+        precision_recall_curve = metrics.precision_recall_curve(y_test, y_scores, pos_label=1)
+    auc = metrics.roc_auc_score(y_test, y_scores)
+    auprc = metrics.average_precision_score(y_test, y_scores)
+    results = {}
+    results['best_prc_threshold'] = 'Threshold=%.5f in precision-recall-curve with best F-Score=%.5f' % (best_prc_threshold, best_fscore)
+    results['best_roc_threshold'] = 'Threshold=%.5f in fpr-tpr-curve with best G-Mean=%.5f' % (best_roc_threshold, best_gmean)
+    results['accuracy_prc'] = round(float(accuracy_prc),5)
+    results['precision_prc'] = round(float(precision_prc),5)
+    results['recall_prc'] = round(float(recall_prc),5)
+    results['f1_prc'] = round(float(f1_prc),5)
+    results['gmean_prc'] = round(float(gmean_prc),5)
+    results['accuracy_roc'] = round(float(accuracy_roc),5)
+    results['precision_roc'] = round(float(precision_roc),5)
+    results['recall_roc'] = round(float(recall_roc),5)
+    results['f1_roc'] = round(float(f1_roc),5)
+    results['gmean_roc'] = round(float(gmean_roc),5)
+    results['tn_prc'] = int(tn_prc)
+    results['fp_prc'] = int(fp_prc)
+    results['fn_prc'] = int(fn_prc)
+    results['tp_prc'] = int(tp_prc)
+    results['tn_roc'] = int(tn_roc)
+    results['fp_roc'] = int(fp_roc)
+    results['fn_roc'] = int(fn_roc)
+    results['tp_roc'] = int(tp_roc)
+    if curve == True:
+         results["roc_curve"] = [[float(i) for i in list(sublist)] for sublist in roc_curve]
+         results["precision_recall_curve"] = [[float(i) for i in list(sublist)] for sublist in precision_recall_curve]
+    results['auc'] = round(float(auc),5)
+    results['auprc'] = round(float(auprc),5)
+    if report == True:
+        results['report_prc'] = classification_report(y_test,y_prc_pred)
+        results['report_roc'] = classification_report(y_test, y_roc_pred)
+    print(str(results))
+    return results
 
 def get_combination_with_results(combination, combination_keys, classification_model_args):
     print('B')
@@ -183,11 +292,11 @@ def get_best_combination_with_results(classification_model_args, modelargs_tunin
     return best_combination, best_results  
     
 
-def get_averaged_results(classification_model_args, params, num_runs=5, train_indicies=None, test_indicies=None, report=False):
-    mets = ["accuracy","precision","recall","auc","auprc","f1"]
+def get_averaged_results(classification_model_args, params, num_runs=5, train_indicies=None, test_indicies=None, report=False, curve=True):
     betw_results = {}
     final_results = {}
     random_state = 10
+    multiple_best_results = {}
     for n in range(num_runs):
         if n < (num_runs-1):
             r = False
@@ -196,18 +305,31 @@ def get_averaged_results(classification_model_args, params, num_runs=5, train_in
         else: # (report == False) and (n == num_runs-1):
             r = False
         print("before get results\n")
-        results = get_results(classification_model_args,params, train_indicies=train_indicies,test_indicies= test_indicies,random_state = random_state+n ,report=r)
-        print("results run " + str(n) + ": " + str(results))
-        for m in mets:
+        results = get_results(classification_model_args,params, train_indicies=train_indicies,test_indicies= test_indicies,random_state = random_state+n ,report=r, curve=curve)
+        multiple_best_results["best_results_" + str(n)] = results
+        file = open(results_path,'r',encoding='utf8')
+        results_object = json.load(file)
+        file.close()
+        results_object["multiple_best_results"] = multiple_best_results
+        file = open(results_path,'w+',encoding='utf8')
+        file.write(json.dumps(results_object))
+        file.close()
+        for m in results:
             betw_results.setdefault(m,[]).append(results[m])
-        print("between results : " + str(betw_results))
-    for m in mets:
-        m_list = betw_results[m]
-        final_results[m] = round(float(sum(m_list)/len(m_list)),5)
+    for m in results:
+        a = betw_results[m] 
+        if not any(isinstance(el, list) for el in a):
+            final_results[m] = round(float(sum(a)/len(a)),5)
+        else: # e.g. a = [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]]
+            b = list(map(list, zip(*a))) # [[[1, 2], [7, 8]], [[3, 4], [9, 10]], [[5, 6], [11, 12]]]
+            c = [list(map(list, zip(*i))) for i in b]  # [[[1, 7], [2, 8]], [[3, 9], [4, 10]], [[5, 11], [6, 12]]]
+            d = [[round(float(sum(subsubc)/len(subsubc)),5) for subsubc in subc] for subc in c] # subc = [[1, 7], [2, 8]], subsubc = [1, 7]
+            final_results[m] = d
     if report == True:
         final_results['report'] = results['report']
-    print(str(final_results))
+    #print(str(final_results))
     return final_results  
+
 
 def lang_dependency_set(lang, test_size=0.1):
     dep_indicies = range(len(lang_indicies[lang]))
@@ -354,7 +476,7 @@ model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path acc
 results_path = model_path(num)
 score = "auprc"  # choose "auprc","auc", "recall", "precision", "accuracy" or "f1", depending which score the evaluation of the best combination has to be based on
 ################################################# ***** RUN THIS PART ***** ###############################################
-# save results
+############# save results into NEW results file
 results_object={}
 results_object["tune_params"] = modelargs_tuning_grid
 results_object["score"] = score
@@ -389,7 +511,8 @@ best_params, best_results = get_best_combination_with_results(classification_mod
 ##      for setting max_len and speeding up training time with multiprocessing in conversion from example to feature
 ### change 'label' to 'final_label'
 
-############## OR load the (saved) best results
+############## OR load the already saved best results
+## adapt results_path to the most recent saved results path
 if os.path.exists(results_path):
     bn_list = list(map(path.basename,iglob(pth+"*.json")))
     num_list = []
@@ -398,27 +521,33 @@ if os.path.exists(results_path):
     max_num = max(num_list)
     results_path = model_path(max_num)
 
-with io.open(results_path,'r+',encoding='utf8') as file:
-    results_object = json.load(file)
+file = open(results_path,'r',encoding='utf8')
+results_object = json.load(file)
+file.close()
 
-score_value = 0.0
-best_comb_name = ""
-for name,res in results_object.items():
-    if 'comb' not in name:
-        continue
-    if 'results' not in res:
-        continue
-    v = results_object[name]['results'][score]
-    if v > score_value:
-        score_value = v
-        best_comb_name = name
+if "best_combination" not in results_object: # EITHER: extract best combination if not saved as best combination
+    score_value = 0.0
+    best_comb_name = ""
+    for name,res in results_object.items():
+        if 'comb' not in name:
+            continue
+        if 'results' not in res:
+            continue
+        v = results_object[name]['results'][score]
+        if v > score_value:
+            score_value = v
+            best_comb_name = name
+    best_params = results_object[best_comb_name]["args_combination"]
+    best_results = results_object[best_comb_name]["results"]
+else: # OR: get saved best combination
+    best_params = results_object["best_combination"]["best_params"]
+    best_results = results_object["best_combination"]["best_results"]   
 
-best_params = results_object[best_comb_name]["args_combination"]
-best_results = results_object[best_comb_name]["results"]
+## make some tests
+result = get_results(classification_model_args, best_params)
 
 ################## run 5 times with best parameter values and take the average 
-averaged_results = get_averaged_results(classification_model_args, best_params) # apply best params and run num_runs times and take the average of the results as best result
-
+averaged_results = get_averaged_results(classification_model_args, best_params, num_runs=1) # apply best params and run num_runs times and take the average of the results as best result
 ################## save best parameter values and the results 
 
 best_combination = {}

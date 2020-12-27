@@ -98,7 +98,7 @@ def equal(X_test,y_test):
 def get_train_test_sets(features,train_indicies=None, test_indicies=None,test_size= 0.2, random_state=0):
     if train_indicies is None:
         X_train, X_test, y_train, y_test = train_test_split(features, df['final_label'], test_size= test_size, random_state=random_state)
-    else:
+    else:  # for language 
         X_train= []
         X_test = []
         y_train = []
@@ -126,46 +126,41 @@ def get_train_test_sets(features,train_indicies=None, test_indicies=None,test_si
     y_test = y_test_1.copy()
     return X_train, X_test, y_train, y_test
 
-def find_optimal_cutoff(target, predicted):
-    """ Find the optimal probability cutoff point for a classification model
-        related to the event rate
+def find_best_prc_threshold(target, predicted):
+    #https://machinelearningmastery.com/threshold-moving-for-imbalanced-classification/
+    # calculate pr-curve
+    precision, recall, thresholds = precision_recall_curve(target, predicted)
+    # convert to f score
+    fscores = (2 * precision * recall) / (precision + recall)
+    # locate the index of the largest f score
+    ix = argmax(fscores) 
+    best_threshold = thresholds[ix]
+    best_fscore = fscores[ix]
+    print('Best prc Threshold=%f, F-Score=%.3f' % (best_threshold, best_fscore))
+    return best_threshold, best_fscore
 
-    Parameters
-    ----------
-    target: Matrix with dependent or target data, where rows are observations
-    predicted_ Matrix with predicted data, where rows are observations
-
-    Returns
-    -------
-    list type, with optimal cutoff value
-
-    """
-    fpr, tpr, threshold = metrics.roc_curve(target, predicted)
-    i = np.arange(len(tpr))
-    roc = pd.DataFrame({'tf': pd.Series(tpr-(1-fpr), index=i), 'threshold': pd.Series(threshold, index=i)})
-    roc_t = roc.ix[(roc.tf-0).abs().argsort()[:1]]
-    return list(roc_t['threshold'])
-
+def find_best_roc_threshold(target, predicted):
+    #https://machinelearningmastery.com/threshold-moving-for-imbalanced-classification/
+    # calculate roc-curve
+    fpr, tpr, thresholds = roc_curve(target, predicted)
+    # calculate the g-mean for each threshold
+    gmeans = sqrt(tpr * (1-fpr))
+    # locate the index of the largest g-mean
+    ix = argmax(gmeans)
+    best_threshold = thresholds[ix]
+    best_gmean = gmeans[ix]
+    print('Best roc Threshold=%f, G-Mean=%.3f' % (best_threshold, best_gmean))
+    return best_threshold, best_gmean
 
 def get_predictions(threshold, prediction_scores):
     """ Apply the threshold to the prediction probability scores
         and return the resulting label predictions
-
-    Parameters
-    ----------
-    threshold: the threshold we want to apply
-    prediction_scores: prediction probability scores, i.e. list of probabilites of being labeled positive
-
-    Returns
-    -------
-    list of label predictions, i.e. list of 1's and 0's
-
     """
     predictions = []
     for score in prediction_scores:
-        if score >= threshold[0]:
+        if score >= threshold:
             predictions.append(1)
-        elif score < threshold[0]:
+        elif score < threshold:
             predictions.append(0)
     return predictions
 
@@ -183,7 +178,7 @@ perform(sayhello, **params)
 '''
 
 # see https://stackoverflow.com/questions/47895434/how-to-make-pipeline-for-multiple-dataframe-columns
-def get_results(params_representation, params_classification, classifier, train_indicies=None, test_indicies=None, test_size=0.2, random_state = 0, report = False):
+def get_results(params_representation, params_classification, classifier, train_indicies=None, test_indicies=None, test_size=0.2, random_state = 0, report = False, curve= False):
     vectorizer = TfidfVectorizer(sublinear_tf=True, **params_representation)
     ##### return no results if ValueError should occurr (should not anymore actually)
     # ValueError: "max_df corresponds to < documents than min_df"
@@ -194,6 +189,7 @@ def get_results(params_representation, params_classification, classifier, train_
             print("ValueError occurred\n")
             return None
     X_train, X_test, y_train, y_test = get_train_test_sets(features,train_indicies=train_indicies, test_indicies=test_indicies,test_size=test_size, random_state=random_state)
+    print("y_test " + str(y_test) +"\n")
     ### apply hyperparameter and train model
     classification_model = perform(classifier, **params_classification) # e.g. classifier == LogisticRegression
     classification_model.fit(X_train, y_train)
@@ -212,26 +208,61 @@ def get_results(params_representation, params_classification, classifier, train_
     else:
         probs = classification_model.predict_proba(X_test) # 2 elements will be returned in probs array,
         y_scores = probs[:,1] # 2nd element gives probability for positive class      
-    # find optimal probability threshold
-    opt_threshold = find_optimal_cutoff(y_test, y_scores)
-    # apply optimal threshold to the prediction probability and get label predictions
-    y_pred = get_predictions(opt_threshold, y_scores) 
+    # find optimal probability threshold in pr-curve and roc_curve
+    best_prc_threshold, best_fscore = find_best_prc_threshold(y_test, y_scores)
+    best_roc_threshold, best_gmean = find_best_roc_threshold(y_test, y_scores)
+    # apply optimal pr-curve and roc_curve threshold to the prediction probability and get label predictions
+    y_prc_pred = get_predictions(best_prc_threshold, y_scores)
+    y_roc_pred = get_predictions(best_roc_threshold, y_scores)
     ################## Evaluation
-    accuracy = metrics.accuracy_score(y_test, y_pred)
-    precision = metrics.precision_score(y_test, y_pred)
-    recall = metrics.recall_score(y_test, y_pred)
-    auc = metrics.roc_auc_score(y_test, y_pred)
-    auprc = metrics.average_precision_score(y_test, y_pred)
-    f1 = metrics.f1_score(y_test, y_pred)
+    ## based on threshold with best fscore in precision-recall-curve
+    accuracy_prc = accuracy_score(y_test, y_prc_pred)
+    precision_prc = precision_score(y_test, y_prc_pred)
+    recall_prc = recall_score(y_test, y_prc_pred)
+    f1_prc = f1_score(y_test, y_prc_pred)
+    gmean_prc = geometric_mean_score(y_test, y_prc_pred)
+    tn_prc, fp_prc, fn_prc, tp_prc = confusion_matrix(y_test, y_prc_pred).ravel()
+    ## based on threshold with best gmean in fpr-tpr-curve (or roc-curve)
+    accuracy_roc = accuracy_score(y_test, y_roc_pred)
+    precision_roc = precision_score(y_test, y_roc_pred)
+    recall_roc = recall_score(y_test, y_roc_pred)
+    f1_roc = f1_score(y_test, y_roc_pred)
+    gmean_roc = geometric_mean_score(y_test, y_roc_pred)
+    tn_roc, fp_roc, fn_roc, tp_roc = confusion_matrix(y_test, y_roc_pred).ravel()    
+    if curve == True:
+        roc_curve = metrics.roc_curve(y_test, y_scores, pos_label=1)
+        precision_recall_curve = metrics.precision_recall_curve(y_test, y_scores, pos_label=1)
+    auc = metrics.roc_auc_score(y_test, y_scores)
+    auprc = metrics.average_precision_score(y_test, y_scores)
     results = {}
-    results['accuracy'] = round(float(accuracy),5)
-    results['precision'] = round(float(precision),5)
-    results['recall'] = round(float(recall),5)
+    results['best_prc_threshold'] = 'Threshold=%.5f in precision-recall-curve with best F-Score=%.5f' % (best_prc_threshold, best_fscore)
+    results['best_roc_threshold'] = 'Threshold=%.5f in fpr-tpr-curve with best G-Mean=%.5f' % (best_roc_threshold, best_gmean)
+    results['accuracy_prc'] = round(float(accuracy_prc),5)
+    results['precision_prc'] = round(float(precision_prc),5)
+    results['recall_prc'] = round(float(recall_prc),5)
+    results['f1_prc'] = round(float(f1_prc),5)
+    results['gmean_prc'] = round(float(gmean_prc),5)
+    results['accuracy_roc'] = round(float(accuracy_roc),5)
+    results['precision_roc'] = round(float(precision_roc),5)
+    results['recall_roc'] = round(float(recall_roc),5)
+    results['f1_roc'] = round(float(f1_roc),5)
+    results['gmean_roc'] = round(float(gmean_roc),5)
+    results['tn_prc'] = int(tn_prc)
+    results['fp_prc'] = int(fp_prc)
+    results['fn_prc'] = int(fn_prc)
+    results['tp_prc'] = int(tp_prc)
+    results['tn_roc'] = int(tn_roc)
+    results['fp_roc'] = int(fp_roc)
+    results['fn_roc'] = int(fn_roc)
+    results['tp_roc'] = int(tp_roc)
+    if curve == True:
+         results["roc_curve"] = [[float(i) for i in list(sublist)] for sublist in roc_curve]
+         results["precision_recall_curve"] = [[float(i) for i in list(sublist)] for sublist in precision_recall_curve]
     results['auc'] = round(float(auc),5)
     results['auprc'] = round(float(auprc),5)
-    results['f1'] = round(float(f1),5)
     if report == True:
-        results['report'] = str(classification_report(y_test, y_pred))
+        results['report_prc'] = classification_report(y_test, y_prc_pred)
+        results['report_roc'] = classification_report(y_test, y_roc_pred)
     print(results)
     return results
 
@@ -304,11 +335,11 @@ def get_best_combination_with_results(param_grid_representation, param_grid_clas
     return best_params_representation, best_params_classification, best_results
 
 
-def get_averaged_results(params_representation, params_classification,classifier,num_runs=5,train_indicies=None, test_indicies=None,test_size=0.2, report=False):
-    mets = ["accuracy","precision","recall","auc","auprc","f1"]
+def get_averaged_results(params_representation, params_classification,classifier,num_runs=5,train_indicies=None, test_indicies=None,test_size=0.2, report=False, curve=True):
     betw_results = {}
     final_results = {}
     random_state = 10
+    multiple_best_results = {}
     for n in range(num_runs): # make report for the last run only
         if n < (num_runs-1):
             r = False
@@ -316,14 +347,28 @@ def get_averaged_results(params_representation, params_classification,classifier
             r = True
         else : # (report == False) and (n == num_runs-1)
             r = False
-        results = get_results(params_representation, params_classification,classifier,train_indicies=train_indicies,test_indicies= test_indicies,test_size=test_size,random_state = random_state+n, report=r)
+        results = get_results(params_representation, params_classification,classifier,train_indicies=train_indicies,test_indicies= test_indicies,test_size=test_size,random_state = random_state+n, report=r, curve=curve)
+        multiple_best_results["best_results_" + str(n)] = results        
+        file = open(results_path,'r',encoding='utf8')
+        results_object = json.load(file)
+        file.close()        
+        results_object["multiple_best_results"] = multiple_best_results
+        file = open(results_path,'w+',encoding='utf8')
+        file.write(json.dumps(results_object))
+        file.close()
         #print("results run " + str(n) + ": " + str(results))
-        for m in mets:
+        for m in results:
             betw_results.setdefault(m,[]).append(results[m])
         #print("between results : " + str(betw_results))
-    for m in mets:
-        m_list = betw_results[m]
-        final_results[m] = round(float(sum(m_list)/len(m_list)),5)
+    for m in results:
+        a = betw_results[m] 
+        if not any(isinstance(el, list) for el in a):
+            final_results[m] = round(float(sum(a)/len(a)),5)
+        else: # e.g. a = [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]]
+            b = list(map(list, zip(*a))) # [[[1, 2], [7, 8]], [[3, 4], [9, 10]], [[5, 6], [11, 12]]]
+            c = [list(map(list, zip(*i))) for i in b]  # [[[1, 7], [2, 8]], [[3, 9], [4, 10]], [[5, 11], [6, 12]]]
+            d = [[round(float(sum(subsubc)/len(subsubc)),5) for subsubc in subc] for subc in c] # subc = [[1, 7], [2, 8]], subsubc = [1, 7]
+            final_results[m] = d
     if report == True:
         final_results['report'] = results['report']
     #print(str(final_results))
@@ -332,7 +377,7 @@ def get_averaged_results(params_representation, params_classification,classifier
 def lang_dependency_set(lang, test_size=0.2):
     dep_indicies = range(len(lang_indicies[lang]))
     k = len(lang_indicies[lang]) * test_size
-    dep_test_indicies = random.sample(dep_indicies, int(k))
+    dep_test_indicies = random.sample(dep_indicies, int(k)) # at each run, a new random sampling
     test_indicies = []
     train_indicies = []    
     for i in range(len(lang_indicies[lang])):
@@ -526,6 +571,7 @@ with io.open(results_path,'w+',encoding='utf8') as file:
 best_params_representation, best_params_classification, best_results = get_best_combination_with_results(param_grid_tfidf, param_grid_classification, score, classifier)
 
 ############## OR load the (saved) best results
+## adapt results_path to the most recent saved results path
 if os.path.exists(results_path):
     bn_list = list(map(path.basename,iglob(pth+"*.json")))
     num_list = []
@@ -534,26 +580,31 @@ if os.path.exists(results_path):
     max_num = max(num_list)
     results_path = model_path(max_num)
 
-with io.open(results_path,'r+',encoding='utf8') as file:
-    results_object = json.load(file)
-
-score_value = 0.0
-best_comb_name = ""
-for name,res in results_object.items():
-    if 'comb' not in name:
-        continue
-    if 'results' not in res:
-        continue
-    v = results_object[name]['results'][score]
-    if v > score_value:
-        score_value = v
-        best_comb_name = name
+# open results file
+file = open(results_path,'r',encoding='utf8')
+results_object = json.load(file)
+file.close()
 
 
-best_params_representation = results_object[best_comb_name]["params_representation"]
-best_params_classification = results_object[best_comb_name]["params_classification"]
-best_results = results_object[best_comb_name]["results"]
-
+if "best_combination" not in results_object: # EITHER: extract best combination if not saved as best combination
+    score_value = 0.0
+    best_comb_name = ""
+    for name,res in results_object.items():
+        if 'comb' not in name:
+            continue
+        if 'results' not in res:
+            continue
+        v = results_object[name]['results'][score]
+        if v > score_value:
+            score_value = v
+            best_comb_name = name
+    best_params_representation = results_object[best_comb_name]["params_representation"]
+    best_params_classification = results_object[best_comb_name]["params_classification"]
+    best_results = results_object[best_comb_name]["results"]
+else: # OR: get saved best combination
+    best_params_representation= results_object["best_combination"]["best_params_representation"]
+    best_params_classification = results_object["best_combination"]["best_params_classification"]
+    best_results = results_object["best_combination"]["best_results"]
 ################## run 5 times with best parameter values and take the average 
 
 averaged_results = get_averaged_results(best_params_representation,best_params_classification,classifier) # apply best params and run num_runs times and take the average of the results as best result
@@ -565,9 +616,10 @@ best_combination["best_params_classification"] = best_params_classification
 best_combination["best_results"] =  best_results
 best_combination["best_averaged_results"] = averaged_results
 
+
 file = open(results_path,'r',encoding='utf8')
 results_object = json.load(file)
-file.close()
+file.close() 
 results_object["best_combination"] = best_combination
 file = open(results_path,'w+',encoding='utf8')
 file.write(json.dumps(results_object))

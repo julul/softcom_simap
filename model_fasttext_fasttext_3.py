@@ -87,28 +87,80 @@ def equal(X_test,y_test):
                 c = c + 1
     return X_test_new, y_test_new
 
-# The optimal cut-off would be where the true positive rate (tpr) is high
-# and the false positive rate (fpr) is low,
-# and tpr (- fpr) is zero or near to zero
-def find_optimal_cutoff(target, predicted):
-    """ Find the optimal probability cutoff point for a classification model
-        related to the event rate
+def get_train_test_sets(train_indicies=None, test_indicies=None,test_size= 0.2, random_state=0):
+    if train_indicies is None:
+        X_train, X_test, y_train, y_test = train_test_split(df['project_details'], df['final_label'], test_size= test_size, random_state=random_state)
+    else:
+        X_train= []
+        X_test = []
+        y_train = []
+        y_test = []
+        for i in train_indicies:
+            X_train.append(df['project_details'][i])
+            y_train.append(df['final_label'][i])
+        for j in test_indicies:
+            X_test.append(df['project_details'][j])
+            y_test.append(df['final_label'][j])   
+    #conversion
+    splitted_set = [y_train,X_train,y_test, X_test]
+    for p in range(len(splitted_set)):
+        if isinstance(splitted_set[p], list):
+            pass
+        else:
+            splitted_set[p] = splitted_set[p].tolist()
+    y_train = splitted_set[0]
+    X_train = splitted_set[1]
+    y_test = splitted_set[2]
+    X_test = splitted_set[3]
+    ### make (number of yes) == (number of no) in test set
+    X_test_1, y_test_1 = equal(X_test,y_test)
+    X_test = X_test_1.copy()
+    y_test = y_test_1.copy()
+    ### make train and test set compatible for fastText
+    # ...
+    ## train_set.txt shape:
+    # __label__0 "some text..."  (pre-processed project details)
+    # __label__1 "some text..."
+    # __label__0 "some text..."
+    train_file = "./data/fasttext/train_set.txt"  
+    test_file = "./data/fasttext/test_set.txt"  ## test_set.txt actually not needed later
+    with io.open(train_file,'w',encoding='utf8') as f:
+        for i in range(0,len(y_train)):
+            f.write("__label__" + str(y_train[i]) + " " + X_train[i] + "\n")
+    
+    with io.open(test_file,'w',encoding='utf8') as f:
+        for i in range(0,len(y_test)):
+            f.write("__label__" + str(y_test[i]) + " " + X_test[i] + "\n")
+    
+    return X_train, X_test, y_train, y_test, train_file
 
-    Parameters
-    ----------
-    target: Matrix with dependent or target data, where rows are observations
-    predicted_ Matrix with predicted data, where rows are observations
+def find_best_prc_threshold(target, predicted):
+    #https://machinelearningmastery.com/threshold-moving-for-imbalanced-classification/
+    # calculate pr-curve
+    precision, recall, thresholds = precision_recall_curve(target, predicted)
+    # convert to f score
+    fscores = (2 * precision * recall) / (precision + recall)
+    # locate the index of the largest f score
+    ix = argmax(fscores) 
+    best_threshold = thresholds[ix]
+    best_fscore = fscores[ix]
+    print('Best prc Threshold=%f, F-Score=%.3f' % (best_threshold, best_fscore))
+    return best_threshold, best_fscore
 
-    Returns
-    -------
-    list type, with optimal cutoff value
 
-    """
-    fpr, tpr, threshold = metrics.roc_curve(target, predicted)
-    i = np.arange(len(tpr))
-    roc = pd.DataFrame({'tf': pd.Series(tpr-(1-fpr), index=i), 'threshold': pd.Series(threshold, index=i)})
-    roc_t = roc.ix[(roc.tf-0).abs().argsort()[:1]]
-    return list(roc_t['threshold'])
+def find_best_roc_threshold(target, predicted):
+    #https://machinelearningmastery.com/threshold-moving-for-imbalanced-classification/
+    # calculate roc-curve
+    fpr, tpr, thresholds = roc_curve(target, predicted)
+    # calculate the g-mean for each threshold
+    gmeans = sqrt(tpr * (1-fpr))
+    # locate the index of the largest g-mean
+    ix = argmax(gmeans)
+    best_threshold = thresholds[ix]
+    best_gmean = gmeans[ix]
+    print('Best roc Threshold=%f, G-Mean=%.3f' % (best_threshold, best_gmean))
+    return best_threshold, best_gmean
+
 
 def from_bin_to_vec(embeddings, vec_path):
     """ Produce from embeddings .bin file to .vec file and save it in vec_path.
@@ -183,76 +235,18 @@ def get_prediction_scores(trained_ft_model,X_test):
 def get_predictions(threshold, prediction_scores):
     """ Apply the threshold to the prediction probability scores
         and return the resulting label predictions
-
-    Parameters
-    ----------
-    threshold: the threshold we want to apply
-    prediction_scores: prediction probability scores, i.e. list of probabilites of being labeled positive
-
-    Returns
-    -------
-    list of label predictions, i.e. list of 1's and 0's
-
     """
     predictions = []
     for score in prediction_scores:
-        if score >= threshold[0]:
+        if score >= threshold:
             predictions.append(1)
-        elif score < threshold[0]:
+        elif score < threshold:
             predictions.append(0)
     return predictions
 
 
-def get_train_test_sets(train_indicies=None, test_indicies=None,test_size= 0.2, random_state=0):
-    if train_indicies is None:
-        X_train, X_test, y_train, y_test = train_test_split(df['project_details'], df['final_label'], test_size= test_size, random_state=random_state)
-    else:
-        X_train= []
-        X_test = []
-        y_train = []
-        y_test = []
-        for i in train_indicies:
-            X_train.append(df['project_details'][i])
-            y_train.append(df['final_label'][i])
-        for j in test_indicies:
-            X_test.append(df['project_details'][j])
-            y_test.append(df['final_label'][j])   
-    #conversion
-    splitted_set = [y_train,X_train,y_test, X_test]
-    for p in range(len(splitted_set)):
-        if isinstance(splitted_set[p], list):
-            pass
-        else:
-            splitted_set[p] = splitted_set[p].tolist()
-    y_train = splitted_set[0]
-    X_train = splitted_set[1]
-    y_test = splitted_set[2]
-    X_test = splitted_set[3]
-    ### make (number of yes) == (number of no) in test set
-    X_test_1, y_test_1 = equal(X_test,y_test)
-    X_test = X_test_1.copy()
-    y_test = y_test_1.copy()
-    ### make train and test set compatible for fastText
-    # ...
-    ## train_set.txt shape:
-    # __label__0 "some text..."  (pre-processed project details)
-    # __label__1 "some text..."
-    # __label__0 "some text..."
-    train_file = "./data/fasttext/train_set.txt"  
-    test_file = "./data/fasttext/test_set.txt"  ## test_set.txt actually not needed later
-    with io.open(train_file,'w',encoding='utf8') as f:
-        for i in range(0,len(y_train)):
-            f.write("__label__" + str(y_train[i]) + " " + X_train[i] + "\n")
-    
-    with io.open(test_file,'w',encoding='utf8') as f:
-        for i in range(0,len(y_test)):
-            f.write("__label__" + str(y_test[i]) + " " + X_test[i] + "\n")
-    
-    return X_train, X_test, y_train, y_test, train_file
 
-
-
-def get_results(params_wordembeddings, params_classification,name=0,train_indicies=None,test_indicies=None, random_state = 0, report = False):       
+def get_results(params_wordembeddings, params_classification,name=0,train_indicies=None,test_indicies=None, random_state = 0, report = False, curve= False):       
     _, X_test, _, y_test, train_file = get_train_test_sets(train_indicies, test_indicies,test_size= test_size, random_state=random_state)
     model_name = "comb_" + str(name)
     # bin_path = "word_vectors/fasttext/" + model_name + ".bin" 
@@ -278,26 +272,61 @@ def get_results(params_wordembeddings, params_classification,name=0,train_indici
     ### find and apply optimal (threshold) cutoff point
     # get scores, i.e. list of probabilities for being labeled positive on set X_test
     y_scores = get_prediction_scores(classification_model,X_test)
-    # find optimal probability threshold
-    opt_threshold = find_optimal_cutoff(y_test, y_scores)
-    # apply optimal threshold to the prediction probability and get label predictions
-    y_pred = get_predictions(opt_threshold, y_scores) 
+    # find optimal probability threshold in pr-curve and roc_curve
+    best_prc_threshold, best_fscore = find_best_prc_threshold(y_test, y_scores)
+    best_roc_threshold, best_gmean = find_best_roc_threshold(y_test, y_scores)
+    # apply optimal pr-curve and roc_curve threshold to the prediction probability and get label predictions
+    y_prc_pred = get_predictions(best_prc_threshold, y_scores)
+    y_roc_pred = get_predictions(best_roc_threshold, y_scores)
     ################## Evaluation
-    accuracy = metrics.accuracy_score(y_test, y_pred)
-    precision = metrics.precision_score(y_test, y_pred)
-    recall = metrics.recall_score(y_test, y_pred)
-    auc = metrics.roc_auc_score(y_test, y_pred)
-    auprc = metrics.average_precision_score(y_test, y_pred)
-    f1 = metrics.f1_score(y_test, y_pred)
+    ## based on threshold with best fscore in precision-recall-curve
+    accuracy_prc = accuracy_score(y_test, y_prc_pred)
+    precision_prc = precision_score(y_test, y_prc_pred)
+    recall_prc = recall_score(y_test, y_prc_pred)
+    f1_prc = f1_score(y_test, y_prc_pred)
+    gmean_prc = geometric_mean_score(y_test, y_prc_pred)
+    tn_prc, fp_prc, fn_prc, tp_prc = confusion_matrix(y_test, y_prc_pred).ravel()
+    ## based on threshold with best gmean in fpr-tpr-curve (or roc-curve)
+    accuracy_roc = accuracy_score(y_test, y_roc_pred)
+    precision_roc = precision_score(y_test, y_roc_pred)
+    recall_roc = recall_score(y_test, y_roc_pred)
+    f1_roc = f1_score(y_test, y_roc_pred)
+    gmean_roc = geometric_mean_score(y_test, y_roc_pred)
+    tn_roc, fp_roc, fn_roc, tp_roc = confusion_matrix(y_test, y_roc_pred).ravel()    
+    if curve == True:
+        roc_curve = metrics.roc_curve(y_test, y_scores, pos_label=1)
+        precision_recall_curve = metrics.precision_recall_curve(y_test, y_scores, pos_label=1)
+    auc = metrics.roc_auc_score(y_test, y_scores)
+    auprc = metrics.average_precision_score(y_test, y_scores)
     results = {}
-    results['accuracy'] = round(float(accuracy),5)
-    results['precision'] = round(float(precision),5)
-    results['recall'] = round(float(recall),5)
+    results['best_prc_threshold'] = 'Threshold=%.5f in precision-recall-curve with best F-Score=%.5f' % (best_prc_threshold, best_fscore)
+    results['best_roc_threshold'] = 'Threshold=%.5f in fpr-tpr-curve with best G-Mean=%.5f' % (best_roc_threshold, best_gmean)
+    results['accuracy_prc'] = round(float(accuracy_prc),5)
+    results['precision_prc'] = round(float(precision_prc),5)
+    results['recall_prc'] = round(float(recall_prc),5)
+    results['f1_prc'] = round(float(f1_prc),5)
+    results['gmean_prc'] = round(float(gmean_prc),5)
+    results['accuracy_roc'] = round(float(accuracy_roc),5)
+    results['precision_roc'] = round(float(precision_roc),5)
+    results['recall_roc'] = round(float(recall_roc),5)
+    results['f1_roc'] = round(float(f1_roc),5)
+    results['gmean_roc'] = round(float(gmean_roc),5)
+    results['tn_prc'] = int(tn_prc)
+    results['fp_prc'] = int(fp_prc)
+    results['fn_prc'] = int(fn_prc)
+    results['tp_prc'] = int(tp_prc)
+    results['tn_roc'] = int(tn_roc)
+    results['fp_roc'] = int(fp_roc)
+    results['fn_roc'] = int(fn_roc)
+    results['tp_roc'] = int(tp_roc)
+    if curve == True:
+         results["roc_curve"] = [[float(i) for i in list(sublist)] for sublist in roc_curve]
+         results["precision_recall_curve"] = [[float(i) for i in list(sublist)] for sublist in precision_recall_curve]
     results['auc'] = round(float(auc),5)
     results['auprc'] = round(float(auprc),5)
-    results['f1'] = round(float(f1),5)
     if report == True:
-        results['report'] = classification_report(y_test, y_pred)
+        results['report_prc'] = classification_report(y_test,y_prc_pred)
+        results['report_roc'] = classification_report(y_test, y_roc_pred)
     print(str(results))
     return results
 
@@ -361,11 +390,11 @@ def get_best_combination_with_results(param_grid_wordembeddings, param_grid_clas
     best_params_classification = max_comb_results[0][0][1].copy()
     return best_params_wordembeddings, best_params_classification, best_results
 
-def get_averaged_results(params_wordembeddings, params_classification,num_runs=5,train_indicies = None, test_indicies = None, report= False):
-    mets = ["accuracy","precision","recall","auc","auprc","f1"]
+def get_averaged_results(params_wordembeddings, params_classification,num_runs=5,train_indicies = None, test_indicies = None, report= False, curve= True):
     betw_results = {}
     final_results = {}
     random_state = 10
+    multiple_best_results = {}
     for n in range(num_runs):
         if n < (num_runs-1):
             r = False
@@ -373,14 +402,28 @@ def get_averaged_results(params_wordembeddings, params_classification,num_runs=5
             r = True
         else: # (report == False) and (n == num_runs-1):
             r = False
-        results = get_results(params_wordembeddings, params_classification,name = n,train_indicies=train_indicies,test_indicies=test_indicies,random_state = random_state+n ,report=r)
-        print("results run " + str(n) + ": " + str(results))
-        for m in mets:
+        results = get_results(params_wordembeddings, params_classification,name = n,train_indicies=train_indicies,test_indicies=test_indicies,random_state = random_state+n ,report=r, curve=curve)
+        multiple_best_results["best_results_" + str(n)] = results
+        #print("results run " + str(n) + ": " + str(results))
+        file = open(results_path,'r',encoding='utf8')
+        results_object = json.load(file)
+        file.close()
+        results_object["multiple_best_results_" + str(n)] = multiple_best_results
+        file = open(results_path,'w+',encoding='utf8')
+        file.write(json.dumps(results_object))
+        file.close()
+        for m in results:
             betw_results.setdefault(m,[]).append(results[m])
-        print("between results : " + str(betw_results))
-    for m in mets:
-        m_list = betw_results[m]
-        final_results[m] = round(float(sum(m_list)/len(m_list)),5)
+        #print("between results : " + str(betw_results))
+    for m in results:
+        a = betw_results[m] 
+        if not any(isinstance(el, list) for el in a):
+            final_results[m] = round(float(sum(a)/len(a)),5)
+        else: # e.g. a = [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]]
+            b = list(map(list, zip(*a))) # [[[1, 2], [7, 8]], [[3, 4], [9, 10]], [[5, 6], [11, 12]]]
+            c = [list(map(list, zip(*i))) for i in b]  # [[[1, 7], [2, 8]], [[3, 9], [4, 10]], [[5, 11], [6, 12]]]
+            d = [[round(float(sum(subsubc)/len(subsubc)),5) for subsubc in subc] for subc in c] # subc = [[1, 7], [2, 8]], subsubc = [1, 7]
+            final_results[m] = d
     if report == True:
         final_results['report'] = results['report']
     return final_results
@@ -606,7 +649,7 @@ best_params_classification = results_object[best_comb_name]["params_classificati
 best_results = results_object[best_comb_name]["results"]
 
 ################## run 5 times with best parameter values and take the average 
-averaged_results = get_averaged_results(best_wordembeddings,best_params_classification) 
+averaged_results = get_averaged_results(best_params_wordembeddings,best_params_classification) 
 
 ################## save best parameter values and the results 
 best_combination = {}
