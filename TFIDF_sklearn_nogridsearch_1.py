@@ -69,8 +69,55 @@ from glob import iglob
 from os import path
 from filelock import FileLock
 from sklearn.metrics import classification_report
+from numpy import argmax
+from numpy import sqrt
+from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import precision_score
+from sklearn.metrics import recall_score
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import average_precision_score
+from sklearn.metrics import recall_score
+from sklearn.metrics import f1_score
+from sklearn.metrics import roc_curve
+from sklearn.metrics import recall_score
+from sklearn.metrics import confusion_matrix
+from imblearn.metrics import geometric_mean_score
+from sklearn.metrics import classification_report
+from sklearn.utils.extmath import softmax
 
 ################# definitions
+
+def get_best_combination_name(results_object):
+    score_value = 0.0
+    best_comb_name = ""
+    for name,res in results_object.items():
+        if 'comb' not in name:
+            continue
+        if 'results' not in res:
+            continue
+        v = results_object[name]['results'][score]
+        if v > score_value:
+            score_value = v
+            best_comb_name = name
+    return best_comb_name
+
+def adapt_resultspath(pth, pos=0):
+    # pos=0 to access most recent already existing results file
+    # pos=1 to create and access new results file
+    num = 0
+    model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
+    results_path = model_path(num)
+    if os.path.exists(results_path):
+        bn_list = list(map(path.basename,iglob(pth+"*.json")))
+        num_list = []
+        for bn in bn_list:
+            num_list.extend(int(i) for i in re.findall('\d+', bn))
+        max_num = max(num_list)
+        new_num = max_num + pos
+        results_path = model_path(new_num)
+    return results_path
+
 
 def equal(X_test,y_test):
     ## make number of yes == number of no
@@ -178,7 +225,17 @@ perform(sayhello, **params)
 '''
 
 # see https://stackoverflow.com/questions/47895434/how-to-make-pipeline-for-multiple-dataframe-columns
-def get_results(params_representation, params_classification, classifier, train_indicies=None, test_indicies=None, test_size=0.2, random_state = 0, report = False, curve= False):
+def get_results(params_representation, params_classification, classifier, train_indicies=None, test_indicies=None, test_size=0.2, random_state = 0, report = False, curve= False, save_results=True, average=False):
+    if average == False:
+        file = open(results_path,'r',encoding='utf8')
+        results_object = json.load(file)
+        file.close()
+        for _,res in results_object.items():
+            if 'params_representation' not in res:
+                continue
+            if res['params_representation'] == params_representation and res['params_classification'] == params_classification:
+                print("representation and classification parameters already exist in the current results_file\n")
+                return res['results']
     vectorizer = TfidfVectorizer(sublinear_tf=True, **params_representation)
     ##### return no results if ValueError should occurr (should not anymore actually)
     # ValueError: "max_df corresponds to < documents than min_df"
@@ -189,7 +246,6 @@ def get_results(params_representation, params_classification, classifier, train_
             print("ValueError occurred\n")
             return None
     X_train, X_test, y_train, y_test = get_train_test_sets(features,train_indicies=train_indicies, test_indicies=test_indicies,test_size=test_size, random_state=random_state)
-    print("y_test " + str(y_test) +"\n")
     ### apply hyperparameter and train model
     classification_model = perform(classifier, **params_classification) # e.g. classifier == LogisticRegression
     classification_model.fit(X_train, y_train)
@@ -264,23 +320,46 @@ def get_results(params_representation, params_classification, classifier, train_
         results['report_prc'] = classification_report(y_test, y_prc_pred)
         results['report_roc'] = classification_report(y_test, y_roc_pred)
     print(results)
+    # save results
+    if save_results == True and average == False:
+        d1={}
+        d2={}
+        d3={}
+        d4={}
+        d1['params_representation'] = params_representation
+        d2['params_classification'] = params_classification
+        d3['results'] = results
+        lock_path = results_path + ".lock" 
+        with FileLock(lock_path):
+            file = open(results_path,'r',encoding='utf8')
+            results_object = json.load(file)
+            file.close()                           
+            number_of_combinations = len([key for key, value in results_object.items() if 'comb' in key.lower()])
+            comb_nr = "comb_" + str(number_of_combinations+1)
+            d4[comb_nr] = {}
+            d4[comb_nr].update(d1)
+            d4[comb_nr].update(d2)
+            d4[comb_nr].update(d3)
+            results_object.update(d4)            
+            file = open(results_path,'w+',encoding='utf8')
+            file.write(json.dumps(results_object))
+            file.close()
     return results
 
 def get_combination_with_results(combination,all_keys, keys_representation, classifier,test_size=0.2):
     params_representation = {}
     params_classification = {}
-    d1={}
-    d2={}
-    d3={}
-    d4={}
+    #d1={}
+    #d2={}
+    #d3={}
+    #d4={}
     for a, b in zip(all_keys, combination):
         if len(params_representation) != len(keys_representation):
             params_representation[a] = b
         else:
             params_classification[a] = b
-    print("1a\n")
     results = get_results(params_representation, params_classification, classifier,test_size=test_size) # returns dict of accuracy, precision, recall, auc, auprc, f1
-    print("1b\n")
+    '''
     d1['params_representation'] = params_representation
     d2['params_classification'] = params_classification
     d3['results'] = results
@@ -302,7 +381,8 @@ def get_combination_with_results(combination,all_keys, keys_representation, clas
             file = open(results_path,'w+',encoding='utf8')
             file.write(json.dumps(results_object))
             file.close()
-        print(results)
+        '''
+    print(results)
     return [[params_representation,params_classification], results] 
 
 
@@ -314,16 +394,13 @@ def get_best_combination_with_results(param_grid_representation, param_grid_clas
     all_values = values_representation + values_classification
     all_keys = keys_representation + keys_classification
     all_combinations = list(itertools.product(*all_values))
-    print("A\n")
     num_available_cores = len(os.sched_getaffinity(0))
     num_cores = num_available_cores - 10
-    print("B\n")
     pool = multiprocessing.Pool(processes=num_cores)
-    print("C\n")
     f=partial(get_combination_with_results, all_keys=all_keys, keys_representation=keys_representation, classifier=classifier, test_size=test_size) 
-    print("D\n")
+    _ = pool.map(f, all_combinations) #returns list of [[params_representation_dict,params_classification_dict], results] 
+    '''
     list_of_combination_results = pool.map(f, all_combinations) #returns list of [[params_representation_dict,params_classification_dict], results] 
-    print("E\n")
     list_of_combination_results = [item for item in list_of_combination_results if item[1] is not None] 
     max_score_value = max(results[score] for combination,results in list_of_combination_results)
     max_comb_results = [[combination,results] for combination,results in list_of_combination_results if results[score] == max_score_value] # list of [[params_representation_dict,params_classification_dict], results] 
@@ -332,6 +409,14 @@ def get_best_combination_with_results(param_grid_representation, param_grid_clas
     best_params_representation = max_comb_results[0][0][0].copy()
     best_params_classification = max_comb_results[0][0][1].copy()
     print(best_results)
+    '''
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close()
+    best_comb_name = get_best_combination_name(results_object)
+    best_params_representation = results_object[best_comb_name]["params_representation"]
+    best_params_classification = results_object[best_comb_name]["params_classification"]
+    best_results = results_object[best_comb_name]["results"]
     return best_params_representation, best_params_classification, best_results
 
 
@@ -347,7 +432,7 @@ def get_averaged_results(params_representation, params_classification,classifier
             r = True
         else : # (report == False) and (n == num_runs-1)
             r = False
-        results = get_results(params_representation, params_classification,classifier,train_indicies=train_indicies,test_indicies= test_indicies,test_size=test_size,random_state = random_state+n, report=r, curve=curve)
+        results = get_results(params_representation, params_classification,classifier,train_indicies=train_indicies,test_indicies= test_indicies,test_size=test_size,random_state = random_state+n, report=r, curve=curve, average=True)
         multiple_best_results["best_results_" + str(n)] = results        
         file = open(results_path,'r',encoding='utf8')
         results_object = json.load(file)
@@ -361,18 +446,21 @@ def get_averaged_results(params_representation, params_classification,classifier
             betw_results.setdefault(m,[]).append(results[m])
         #print("between results : " + str(betw_results))
     for m in results:
-        a = betw_results[m] 
-        if not any(isinstance(el, list) for el in a):
-            final_results[m] = round(float(sum(a)/len(a)),5)
-        else: # e.g. a = [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]]
+        a = betw_results[m]
+        if 'report' in m:
+            final_results[m] = results[m]
+        elif 'threshold' in m:
+            continue # we don't need the average thresholds
+        elif 'curve' in m: # e.g. a = [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]]
             b = list(map(list, zip(*a))) # [[[1, 2], [7, 8]], [[3, 4], [9, 10]], [[5, 6], [11, 12]]]
             c = [list(map(list, zip(*i))) for i in b]  # [[[1, 7], [2, 8]], [[3, 9], [4, 10]], [[5, 11], [6, 12]]]
             d = [[round(float(sum(subsubc)/len(subsubc)),5) for subsubc in subc] for subc in c] # subc = [[1, 7], [2, 8]], subsubc = [1, 7]
             final_results[m] = d
-    if report == True:
-        final_results['report'] = results['report']
+        else:
+            final_results[m] = round(float(sum(a)/len(a)),5)
     #print(str(final_results))
     return final_results
+
 
 def lang_dependency_set(lang, test_size=0.2):
     dep_indicies = range(len(lang_indicies[lang]))
@@ -536,87 +624,175 @@ file.close()
 ######################################### ***** ADAPT THIS PART ***** ####################################################
 #### test for one particular sklearn classification algo
 # choose classifier
-param_grid_classification = param_grid_lg # choose among param_grid_lg, param_grid_rf, param_grid_mnb, param_grid_lsvc
-classifier = LogisticRegression  # choose respectively among LogisticRegression, RandomForestClassifier, MultinomialNB, LinearSVC 
-num = 0
-pth = "./models/model_TFIDF_LogisticRegression/model_1/" # adapt accordingly among LogisticRegression, RandomForestClassifier, MultinomialNB, LinearSVC resp.
-model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
-results_path = model_path(num)
-score = "auprc" # choose among 'auprc', 'auc', 'f1', 'accuracy', 'precision', 'recall'
+param_grid_classification = param_grid_lsvc # choose among param_grid_lg, param_grid_rf, param_grid_mnb, param_grid_lsvc
+classifier = LinearSVC  # choose respectively among LogisticRegression, RandomForestClassifier, MultinomialNB, LinearSVC 
+pth = "./models/model_TFIDF_LinearSVC/model_1/" # adapt accordingly among LogisticRegression, RandomForestClassifier, MultinomialNB, LinearSVC resp.
+score = "auprc" # choose among 'auprc', 'auc', 'f1', 'accuracy', 'precision', 'recall' etc. check get_results to see all metrics
 ################################################# ***** RUN THIS PART ***** ###############################################
-###### EVENTUALLY REMOVE FILE MANUALLY ######
-# check if file already exists, if yes create new one
+###### CREATE NEW RESULTS FILE ######
 # prepare framework for saving results
 results_object={}
 results_object['tune_param_representation'] = param_grid_tfidf
 results_object['tune_param_classification'] = param_grid_classification
 results_object['score'] = score
-if os.path.exists(results_path):
-    bn_list = list(map(path.basename,iglob(pth+"*.json")))
-    num_list = []
-    for bn in bn_list:
-        num_list.extend(int(i) for i in re.findall('\d+', bn))
-    max_num = max(num_list)
-    num = max_num + 1
-    results_path = model_path(num)
+results_path = adapt_resultspath(pth, pos=1)
 
 with io.open(results_path,'w+',encoding='utf8') as file:
     json.dump(results_object, file) 
 
-############## get best parameter values along with the results 
+# get best parameter values along with the results 
     '''
     training of 80% of all projects and
     evaluating of 20% of randomly chosen projects (independently of the language)
     '''
 best_params_representation, best_params_classification, best_results = get_best_combination_with_results(param_grid_tfidf, param_grid_classification, score, classifier)
 
-############## OR load the (saved) best results
+###### OR LOAD SAVED BEST RESULTS ######
+##### FROM MOST RECENT RESULTS FILE ####
 ## adapt results_path to the most recent saved results path
-if os.path.exists(results_path):
-    bn_list = list(map(path.basename,iglob(pth+"*.json")))
-    num_list = []
-    for bn in bn_list:
-        num_list.extend(int(i) for i in re.findall('\d+', bn))
-    max_num = max(num_list)
-    results_path = model_path(max_num)
+results_path = adapt_resultspath(pth, pos=0)
 
-# open results file
 file = open(results_path,'r',encoding='utf8')
 results_object = json.load(file)
 file.close()
 
+best_comb_name = get_best_combination_name(results_object)
+best_params_representation = results_object[best_comb_name]["params_representation"]
+best_params_classification = results_object[best_comb_name]["params_classification"]
+best_results = results_object[best_comb_name]["results"]
+# save
+best_combination = {}
+best_combination["best_params_representation"] = best_params_representation
+best_combination["best_params_classification"] = best_params_classification
+best_combination["best_results"] =  best_results
+file = open(results_path,'r',encoding='utf8')
+results_object = json.load(file)
+file.close() 
+results_object["best_combination"] = best_combination
+file = open(results_path,'w+',encoding='utf8')
+file.write(json.dumps(results_object))
+file.close()
 
-if "best_combination" not in results_object: # EITHER: extract best combination if not saved as best combination
-    score_value = 0.0
-    best_comb_name = ""
-    for name,res in results_object.items():
-        if 'comb' not in name:
-            continue
-        if 'results' not in res:
-            continue
-        v = results_object[name]['results'][score]
-        if v > score_value:
-            score_value = v
-            best_comb_name = name
-    best_params_representation = results_object[best_comb_name]["params_representation"]
-    best_params_classification = results_object[best_comb_name]["params_classification"]
-    best_results = results_object[best_comb_name]["results"]
-else: # OR: get saved best combination
-    best_params_representation= results_object["best_combination"]["best_params_representation"]
-    best_params_classification = results_object["best_combination"]["best_params_classification"]
-    best_results = results_object["best_combination"]["best_results"]
+# OR: get saved best combination
+#    best_params_representation= results_object["best_combination"]["best_params_representation"]
+#    best_params_classification = results_object["best_combination"]["best_params_classification"]
+#    best_results = results_object["best_combination"]["best_results"]
+
+'''
+LogistigRegression:
+best_params_representation": {"max_df": 0.9, "min_df": 0.001},
+"best_params_classification": {"C": 10.0, "penalty": "l2", "class_weight": "balanced", "solver": "liblinear"},
+"best_results": {... "auprc": 0.96776}}
+
+test manually also (these combinations don't appear in results_file yet):
+result_0 = get_results({"max_df": 0.95, "min_df": 0.001}, {"C": 10.0, "penalty": "l2", "class_weight": "balanced", "solver": "liblinear"}, classifier)
+--> auprc: 0.96776
+result_1 = get_results({"max_df": 0.95, "min_df": 0.001}, {"C": 10.0, "penalty": "l1", "class_weight": "balanced", "solver": "liblinear"}, classifier)
+--> auprc: 0.97118
+result_2 = get_results({"max_df": 0.90, "min_df": 0.001}, {"C": 10.0, "penalty": "l1", "class_weight": "balanced", "solver": "liblinear"}, classifier)
+--> ***** auprc: 0.97125 *****
+result_3 = get_results({"max_df": 0.85, "min_df": 0.001}, {"C": 10.0, "penalty": "l1", "class_weight": "balanced", "solver": "liblinear"}, classifier)
+--> auprc: 0.97118
+Do they achieve better results?
+
+
+RandomForestClassifier:
+"best_params_representation": {"max_df": 0.8, "min_df": 0.011},
+"best_params_classification": {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 2},
+"best_results": {... "auprc": 0.93832}}
+
+Comparing with best results in previous results_file:
+"best_params_representation": {"max_df": 0.95, "min_df": 0.001},
+"best_params_classification": {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 5}
+
+test manually also (these combinations (normally) don't appear in the current results_file yet):
+result_0 = get_results({"max_df": 0.95, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 5}, classifier)
+--> auprc: 0.9463
+result_1 = get_results({"max_df": 0.9, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 5}, classifier)
+--> auprc: 0.94218
+result_2 = get_results({"max_df": 0.85, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 5}, classifier)
+--> auprc: 0.94292
+result_3 = get_results({"max_df": 0.95, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 5}, classifier)
+--> auprc: 0.93703
+result_4 = get_results({"max_df": 0.9, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 5}, classifier)
+--> auprc: 0.93508
+result_5 = get_results({"max_df": 0.85, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 5}, classifier)
+--> auprc: 0.93652
+result_6 = get_results({"max_df": 0.95, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 2}, classifier)
+--> ***** auprc: 0.94814 *****
+result_7 = get_results({"max_df": 0.9, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 2}, classifier)
+--> auprc: 0.94542
+result_8 = get_results({"max_df": 0.85, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 2}, classifier)
+--> auprc: 0.946
+result_9 = get_results({"max_df": 0.95, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 2}, classifier)
+--> auprc: 0.9361
+result_10 = get_results({"max_df": 0.9, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 2}, classifier)
+--> auprc: 0.93653
+result_11 = get_results({"max_df": 0.85, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 2}, classifier)
+--> auprc: 0.93816
+result_12 = get_results({"max_df": 0.95, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 2}, classifier)
+--> auprc: 0.94478
+result_13 = get_results({"max_df": 0.9, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 2}, classifier)
+--> auprc: 0.94681
+result_14 = get_results({"max_df": 0.85, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 2}, classifier)
+--> auprc: 0.945
+result_15 = get_results({"max_df": 0.95, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 2}, classifier)
+--> auprc: 0.93623
+result_16 = get_results({"max_df": 0.9, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 2}, classifier)
+--> auprc: 0.93234
+result_17 = get_results({"max_df": 0.85, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 2}, classifier)
+--> auprc: 0.93723
+result_18 = get_results({"max_df": 0.95, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 5}, classifier)
+--> auprc: 0.94269
+result_19 = get_results({"max_df": 0.9, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 5}, classifier)
+--> auprc: 0.94321
+result_20 = get_results({"max_df": 0.85, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 5}, classifier)
+--> auprc: 0.9414
+result_21 = get_results({"max_df": 0.95, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 5}, classifier)
+--> auprc: 0.93465
+result_22 = get_results({"max_df": 0.9, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 5}, classifier)
+--> auprc: 0.93714
+result_23 = get_results({"max_df": 0.85, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 5}, classifier)
+--> auprc: 0.93633
+
+
+MultinomialNB Classifier:
+"best_params_representation": {"max_df": 0.8, "min_df": 0.011},
+"best_params_classification": {"alpha": 0.5, "fit_prior": False},
+"best_results": {... "auprc": 0.80656}}
+
+Comparing with best results in previous results_file:
+"best_params_representation": {"max_df": 0.9, "min_df": 0.001},
+"best_params_classification": {"alpha": 0.5, "fit_prior": True},
+
+test manually also (these combinations (probably) don't appear in the current results_file yet):
+result_0 = get_results({"max_df": 0.8, "min_df": 0.011}, {"alpha": 0.5, "fit_prior": True}, classifier)
+result_1 = get_results({"max_df": 0.85, "min_df": 0.011}, {"alpha": 0.5, "fit_prior": False}, classifier)
+result_2 = get_results({"max_df": 0.9, "min_df": 0.011}, {"alpha": 0.5, "fit_prior": False}, classifier)
+result_3 = get_results({"max_df": 0.95, "min_df": 0.011}, {"alpha": 0.5, "fit_prior": False}, classifier)
+result_4 = get_results({"max_df": 0.85, "min_df": 0.001}, {"alpha": 0.5, "fit_prior": False}, classifier)
+result_5 = get_results({"max_df": 0.9, "min_df": 0.001}, {"alpha": 0.5, "fit_prior": False}, classifier)
+result_6 = get_results({"max_df": 0.95, "min_df": 0.001}, {"alpha": 0.5, "fit_prior": False}, classifier)
+result_7 = get_results({"max_df": 0.85, "min_df": 0.011}, {"alpha": 0.5, "fit_prior": True}, classifier)
+result_8 = get_results({"max_df": 0.9, "min_df": 0.011}, {"alpha": 0.5, "fit_prior": True}, classifier)
+result_9 = get_results({"max_df": 0.95, "min_df": 0.011}, {"alpha": 0.5, "fit_prior": True}, classifier)
+result_10 = get_results({"max_df": 0.85, "min_df": 0.001}, {"alpha": 0.5, "fit_prior": True}, classifier)
+result_11 = get_results({"max_df": 0.9, "min_df": 0.001}, {"alpha": 0.5, "fit_prior": True}, classifier)
+result_12 = get_results({"max_df": 0.95, "min_df": 0.001}, {"alpha": 0.5, "fit_prior": True}, classifier)
+result_13 = get_results({"max_df": 0.95, "min_df": 0.001}, {"alpha": 0.5, "fit_prior": True}, classifier)
+
+
+
+
+
+'''
+
 ################## run 5 times with best parameter values and take the average 
 
 averaged_results = get_averaged_results(best_params_representation,best_params_classification,classifier) # apply best params and run num_runs times and take the average of the results as best result
 
 ################## save best parameter values and the results 
-best_combination = {}
-best_combination["best_params_representation"] = best_params_representation
-best_combination["best_params_classification"] = best_params_classification
-best_combination["best_results"] =  best_results
 best_combination["best_averaged_results"] = averaged_results
-
-
 file = open(results_path,'r',encoding='utf8')
 results_object = json.load(file)
 file.close() 

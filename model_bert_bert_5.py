@@ -197,10 +197,14 @@ def get_results(classification_model_args,args_combination, train_indicies = Non
     gmean_roc = geometric_mean_score(y_test, y_roc_pred)
     tn_roc, fp_roc, fn_roc, tp_roc = confusion_matrix(y_test, y_roc_pred).ravel()    
     if curve == True:
-        roc_curve = metrics.roc_curve(y_test, y_scores, pos_label=1)
-        precision_recall_curve = metrics.precision_recall_curve(y_test, y_scores, pos_label=1)
+        roc_curve = metrics.roc_curve(y_test, y_scores, pos_label=1) # fpr, tpr, thresholds
+        precision_recall_curve = metrics.precision_recall_curve(y_test, y_scores, pos_label=1) # precision, recall, thresholds
+        # create tpr-fnr-curve?
     auc = metrics.roc_auc_score(y_test, y_scores)
+    # or auc = auc(fpr, tpr)
     auprc = metrics.average_precision_score(y_test, y_scores)
+    # or auprc = auc(recall, precision)
+    # create auc = auc(fnr,tpr)
     results = {}
     results['best_prc_threshold'] = 'Threshold=%.5f in precision-recall-curve with best F-Score=%.5f' % (best_prc_threshold, best_fscore)
     results['best_roc_threshold'] = 'Threshold=%.5f in fpr-tpr-curve with best G-Mean=%.5f' % (best_roc_threshold, best_gmean)
@@ -242,7 +246,7 @@ def get_combination_with_results(combination, combination_keys, classification_m
     #name = multiprocessing.current_process().name
     for a, b in zip(combination_keys,combination):
         args_combination[a] = b
-    results = get_results(classification_model_args,args_combination) # returns dict of accuracy, precision, recall, auc, auprc 
+    results = get_results(classification_model_args,args_combination) # returns dict of accuracy, precision, recall, auc, auprc ...
     print('B2')
     d1['args_combination'] = args_combination
     d3['results'] = results
@@ -474,7 +478,7 @@ num = 0
 pth = "./models/model_Bert/model_1/"
 model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
 results_path = model_path(num)
-score = "auprc"  # choose "auprc","auc", "recall", "precision", "accuracy" or "f1", depending which score the evaluation of the best combination has to be based on
+score = "auprc"  # choose "auprc","auc", "recall", "precision", "accuracy", "f1" etc. depending which score the evaluation of the best combination has to be based on
 ################################################# ***** RUN THIS PART ***** ###############################################
 ############# save results into NEW results file
 results_object={}
