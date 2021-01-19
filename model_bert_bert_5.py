@@ -38,12 +38,44 @@ from imblearn.metrics import geometric_mean_score
 from sklearn.metrics import classification_report
 from sklearn.utils.extmath import softmax
 
+
 logging.basicConfig(level=logging.INFO)
 transformers_logger = logging.getLogger("transformers")
 transformers_logger.setLevel(logging.WARNING)
 ######################### BERT tuning without process or thread parallelisation with pool
 
 ################# some definitions
+
+def get_best_combination_name(results_object):
+    score_value = 0.0
+    best_comb_name = ""
+    for name,res in results_object.items():
+        if 'comb' not in name:
+            continue
+        if 'results' not in res:
+            continue
+        v = results_object[name]['results'][score]
+        if v > score_value:
+            score_value = v
+            best_comb_name = name
+    return best_comb_name
+
+def adapt_resultspath(pth, pos=0):
+    # pos=0 to access most recent already existing results file
+    # pos=1 to create and access new results file
+    num = 0
+    model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
+    results_path = model_path(num)
+    if os.path.exists(results_path):
+        bn_list = list(map(path.basename,iglob(pth+"*.json")))
+        num_list = []
+        for bn in bn_list:
+            num_list.extend(int(i) for i in re.findall('\d+', bn))
+        max_num = max(num_list)
+        new_num = max_num + pos
+        results_path = model_path(new_num)
+    return results_path
+
 def equal(X_test,y_test):
     ## make number of yes == number of no
     # take the difference of number of yes and no labels
@@ -96,8 +128,7 @@ def get_train_test_sets(train_indicies=None, test_indicies=None,test_size=0.1, r
     ### make (number of yes) == (number of no) in test set
     X_test_1, y_test_1 = equal(X_test,y_test)
     X_test = X_test_1.copy()
-    y_test = y_test_1.copy()
-    
+    y_test = y_test_1.copy()    
     return X_train, X_test, y_train, y_test
 
 def find_best_prc_threshold(target, predicted):
@@ -140,7 +171,17 @@ def get_predictions(threshold, prediction_scores):
     return predictions
 
 
-def get_results(classification_model_args,args_combination, train_indicies = None, test_indicies = None, test_size=0.1, random_state = 0, report = False, curve=False):
+def get_results(classification_model_args,args_combination, train_indicies = None, test_indicies = None, test_size=0.1, random_state = 0, report = False, curve=False, save_results=True, average=False):
+    if average == False:
+        file = open(results_path,'r',encoding='utf8')
+        results_object = json.load(file)
+        file.close()
+        for _,res in results_object.items():
+            if 'args_combination' not in res:
+                continue
+            if res['args_combination'] == args_combination:
+                print("tuning parameters already exist in the current results_file\n")
+                return res['results']
     print("before train test sets\n")
     X_train, X_test, y_train, y_test = get_train_test_sets(train_indicies, test_indicies,test_size= test_size, random_state=random_state)    
     # Train and Evaluation data needs to be in a Pandas Dataframe of two columns.
@@ -235,9 +276,27 @@ def get_results(classification_model_args,args_combination, train_indicies = Non
         results['report_prc'] = classification_report(y_test,y_prc_pred)
         results['report_roc'] = classification_report(y_test, y_roc_pred)
     print(str(results))
+    if save_results == True and average == False:
+        d1={}
+        d3={}
+        d4={}
+        d1['args_combination'] = args_combination
+        d3['results'] = results
+        file = open(results_path,'r',encoding='utf8')
+        results_object = json.load(file)
+        file.close()
+        number_of_combinations = len([key for key, value in results_object.items() if 'comb' in key.lower()])
+        comb_nr = "comb_" + str(number_of_combinations+1)
+        d4[comb_nr] = {}
+        d4[comb_nr].update(d1)
+        d4[comb_nr].update(d3)
+        results_object.update(d4)
+        file = open(results_path,'w+',encoding='utf8')
+        file.write(json.dumps(results_object))
+        file.close()    
     return results
 
-def get_combination_with_results(combination, combination_keys, classification_model_args):
+def get_combination_with_results(combination, combination_keys, classification_model_args, test_size=0.1):
     print('B')
     args_combination = {}
     d1={}
@@ -246,7 +305,7 @@ def get_combination_with_results(combination, combination_keys, classification_m
     #name = multiprocessing.current_process().name
     for a, b in zip(combination_keys,combination):
         args_combination[a] = b
-    results = get_results(classification_model_args,args_combination) # returns dict of accuracy, precision, recall, auc, auprc ...
+    results = get_results(classification_model_args,args_combination, test_size=test_size) # returns dict of accuracy, precision, recall, auc, auprc ...
     print('B2')
     d1['args_combination'] = args_combination
     d3['results'] = results
@@ -271,32 +330,29 @@ def get_best_combination_with_results(classification_model_args, modelargs_tunin
     modelargs_tuning_values = list(modelargs_tuning_grid.values())
     combination_keys = list(modelargs_tuning_grid.keys())
     all_combinations = list(itertools.product(*modelargs_tuning_values)) 
-    '''
-    num_available_cores = len(os.sched_getaffinity(0))
-    # pool = multiprocessing.Pool(processes=num_available_cores)   
-    pool = ThreadPool(processes=num_available_cores)
-    print('A1')
-    f=partial(get_combination_with_results, combination_keys = combination_keys, classification_model_args=classification_model_args, train_df=train_df, eval_df=eval_df) 
-    print('A2')
-    list_of_combination_results = pool.map(f, all_combinations) 
-    pool.close()
-    pool.join()
-    print('A3')
-    '''
     list_of_combination_results = []
-    for combination in all_combinations:
+    all_combinations_shuffled = random.sample(all_combinations, len(all_combinations))
+    for combination in all_combinations_shuffled:
         combination_result = get_combination_with_results(combination = combination, combination_keys = combination_keys, classification_model_args=classification_model_args)
         list_of_combination_results.append(combination_result)
+    '''
     max_score_value = max(results[score] for combination,results in list_of_combination_results)
     max_comb_results = [[combination,results] for combination,results in list_of_combination_results if results[score] == max_score_value] # list of [[params_representation_dict,params_classification_dict], results] 
     print("Length of max_comb_results :" + str(len(max_comb_results)))
     best_results = max_comb_results[0][1].copy() 
     best_combination = max_comb_results[0][0].copy()
     print(best_results)
+    '''
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close()
+    best_comb_name = get_best_combination_name(results_object)
+    best_combination = results_object[best_comb_name]["args_combination"]
+    best_results = results_object[best_comb_name]["results"]
     return best_combination, best_results  
     
 
-def get_averaged_results(classification_model_args, params, num_runs=5, train_indicies=None, test_indicies=None, report=False, curve=True):
+def get_averaged_results(classification_model_args, params, num_runs=5, train_indicies=None, test_indicies=None, report=False, curve=True, saveas= 'best'):
     betw_results = {}
     final_results = {}
     random_state = 10
@@ -309,7 +365,7 @@ def get_averaged_results(classification_model_args, params, num_runs=5, train_in
         else: # (report == False) and (n == num_runs-1):
             r = False
         print("before get results\n")
-        results = get_results(classification_model_args,params, train_indicies=train_indicies,test_indicies= test_indicies,random_state = random_state+n ,report=r, curve=curve)
+        results = get_results(classification_model_args,params, train_indicies=train_indicies,test_indicies= test_indicies,random_state = random_state+n ,report=r, curve=curve, average=True)
         multiple_best_results["best_results_" + str(n)] = results
         file = open(results_path,'r',encoding='utf8')
         results_object = json.load(file)
@@ -322,15 +378,17 @@ def get_averaged_results(classification_model_args, params, num_runs=5, train_in
             betw_results.setdefault(m,[]).append(results[m])
     for m in results:
         a = betw_results[m] 
-        if not any(isinstance(el, list) for el in a):
-            final_results[m] = round(float(sum(a)/len(a)),5)
-        else: # e.g. a = [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]]
+        if 'report' in m:
+            final_results[m] = results[m]
+        elif 'threshold' in m:
+            continue # we don't need the average thresholds
+        elif 'curve' in m: # e.g. a = [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]]
             b = list(map(list, zip(*a))) # [[[1, 2], [7, 8]], [[3, 4], [9, 10]], [[5, 6], [11, 12]]]
             c = [list(map(list, zip(*i))) for i in b]  # [[[1, 7], [2, 8]], [[3, 9], [4, 10]], [[5, 11], [6, 12]]]
             d = [[round(float(sum(subsubc)/len(subsubc)),5) for subsubc in subc] for subc in c] # subc = [[1, 7], [2, 8]], subsubc = [1, 7]
             final_results[m] = d
-    if report == True:
-        final_results['report'] = results['report']
+        else:
+            final_results[m] = round(float(sum(a)/len(a)),5)
     #print(str(final_results))
     return final_results  
 
@@ -407,20 +465,27 @@ class ClassificationModel:
         self, model_type, model_name, num_labels=None, weight=None, args=None, use_cuda=True, cuda_device=-1, **kwargs,
     ):
 
-        """
+        
         Initializes a ClassificationModel model.
         Args:
             model_type: The type of model (bert, xlnet, xlm, roberta, distilbert)
-            model_name: The exact architecture and trained weights to use. This may be a Hugging Face Transformers compatible pre-trained model, a community model, or the path to a directory containing model files.
+            model_name: The exact architecture and trained weights to use. This may be a 
+               Hugging Face Transformers compatible pre-trained model, a community model, or the path to a directory containing model files.
             num_labels (optional): The number of labels or classes in the dataset.
-            weight (optional): A list of length num_labels containing the weights to assign to each label for loss calculation.
-     -----> args (optional): Default args will be used if this parameter is not provided. If provided, it should be a dict containing the args that should be changed in the default args.
-            use_cuda (optional): Use GPU if available. Setting to False will force model to use CPU only.
-            cuda_device (optional): Specific GPU that should be used. Will use the first available GPU by default.
-            **kwargs (optional): For providing proxies, force_download, resume_download, cache_dir and other options specific to the 'from_pretrained' implementation where this will be supplied.
-        """  # noqa: ignore flake8"
-
-
+            weight (optional): A list of length num_labels containing the weights to
+               assign to each label for loss calculation.
+ ---------> args (optional): Default args will be used if this parameter is not   
+|              provided. If provided, it should be a dict containing the args that should
+|              be changed in the default args.
+|           use_cuda (optional): Use GPU if available. Setting to False will force
+|              model to use CPU only.
+|           cuda_device (optional): Specific GPU that should be used.
+|               Will use the first available GPU by default.
+|           **kwargs (optional): For providing proxies, force_download, resume_download, 
+|              cache_dir and other options specific to the 'from_pretrained'
+|              implementation where this will be supplied.
+|
+v
 class ModelArgs: (default values for 'args')
     adam_epsilon: float = 1e-8  # tune adam_epsilon?
     learning_rate: float = 4e-5
@@ -474,26 +539,17 @@ lang_indicies = json.load(file)
 file.close()
 
 ######################################### ***** ADAPT THIS PART ***** ####################################################
-num = 0
 pth = "./models/model_Bert/model_1/"
-model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
-results_path = model_path(num)
 score = "auprc"  # choose "auprc","auc", "recall", "precision", "accuracy", "f1" etc. depending which score the evaluation of the best combination has to be based on
 ################################################# ***** RUN THIS PART ***** ###############################################
-############# save results into NEW results file
+###### CREATE NEW RESULTS FILE ######
+# prepare framework for saving results
 results_object={}
 results_object["tune_params"] = modelargs_tuning_grid
 results_object["score"] = score
-if os.path.exists(results_path):
-    bn_list = list(map(path.basename,iglob(pth+"*.json")))
-    num_list = []
-    for bn in bn_list:
-        num_list.extend(int(i) for i in re.findall('\d+', bn))
-    max_num = max(num_list)
-    num = max_num + 1
-    results_path = model_path(num)
+results_path = adapt_resultspath(pth, pos=1)
 
-with io.open(results_path,'w+',encoding='utf8') as file: 
+with io.open(results_path,'w+',encoding='utf8') as file:
     json.dump(results_object, file) 
 ############## get best parameter values along with the results 
     '''
@@ -507,7 +563,14 @@ with io.open(results_path,'w+',encoding='utf8') as file:
 #eval_df = pd.DataFrame([[a,b] for a,b in zip(X_test, y_test)])
 
 # RUN
+
+
+# best comb from previous run/results_file
+comb_0 = {"learning_rate": 5e-05, "train_batch_size": 32, "num_train_epochs": 4, "max_seq_length": 512, "process_count": 30, "use_multiprocessing": True, "eval_batch_size": 32, "overwrite_output_dir": True}
+
+results_0 = get_results(classification_model_args,comb_0)
 best_params, best_results = get_best_combination_with_results(classification_model_args=classification_model_args, modelargs_tuning_grid=modelargs_tuning_grid)
+
 
 ## check max_len --> length of longest tokenized sentence
 ## check adam properties tuning
@@ -515,48 +578,40 @@ best_params, best_results = get_best_combination_with_results(classification_mod
 ##      for setting max_len and speeding up training time with multiprocessing in conversion from example to feature
 ### change 'label' to 'final_label'
 
-############## OR load the already saved best results
+###### LOAD SAVED BEST RESULTS ######
+##### FROM MOST RECENT RESULTS FILE ####
 ## adapt results_path to the most recent saved results path
-if os.path.exists(results_path):
-    bn_list = list(map(path.basename,iglob(pth+"*.json")))
-    num_list = []
-    for bn in bn_list:
-        num_list.extend(int(i) for i in re.findall('\d+', bn))
-    max_num = max(num_list)
-    results_path = model_path(max_num)
+results_path = adapt_resultspath(pth, pos=0)
 
 file = open(results_path,'r',encoding='utf8')
 results_object = json.load(file)
 file.close()
 
-if "best_combination" not in results_object: # EITHER: extract best combination if not saved as best combination
-    score_value = 0.0
-    best_comb_name = ""
-    for name,res in results_object.items():
-        if 'comb' not in name:
-            continue
-        if 'results' not in res:
-            continue
-        v = results_object[name]['results'][score]
-        if v > score_value:
-            score_value = v
-            best_comb_name = name
-    best_params = results_object[best_comb_name]["args_combination"]
-    best_results = results_object[best_comb_name]["results"]
-else: # OR: get saved best combination
-    best_params = results_object["best_combination"]["best_params"]
-    best_results = results_object["best_combination"]["best_results"]   
+best_comb_name = get_best_combination_name(results_object)
+best_params = results_object[best_comb_name]["args_combination"]
+best_results = results_object[best_comb_name]["results"]
+# save
+best_combination = {}
+best_combination["best_params"] = best_params
+best_combination["best_results"] = best_results
+best_combination["best_averaged_results"] = averaged_results
+file = open(results_path,'r',encoding='utf8')
+results_object = json.load(file)
+file.close()
+results_object["best_combination"] = best_combination
+file = open(results_path,'w+',encoding='utf8')
+file.write(json.dumps(results_object))
+file.close()
 
-## make some tests
-result = get_results(classification_model_args, best_params)
+# OR: get saved best combination
+#    best_params = results_object["best_combination"]["best_params"]
+#    best_results = results_object["best_combination"]["best_results"]   
+
 
 ################## run 5 times with best parameter values and take the average 
 averaged_results = get_averaged_results(classification_model_args, best_params, num_runs=1) # apply best params and run num_runs times and take the average of the results as best result
 ################## save best parameter values and the results 
 
-best_combination = {}
-best_combination["best_params"] = best_params
-best_combination["best_results"] = best_results
 best_combination["best_averaged_results"] = averaged_results
 
 file = open(results_path,'r',encoding='utf8')
@@ -588,7 +643,7 @@ same for italian, french and english
 '''
 ########## test language (in)dependency and save the results
 ## set test size
-test_size = 0.2
+test_size = 0.1
 languages = ['de','fr','it','en']
 half = int(len(languages)/2) # 2 if len(languages) is 5
 dep_count = 0

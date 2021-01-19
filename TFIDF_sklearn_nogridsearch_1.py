@@ -225,8 +225,8 @@ perform(sayhello, **params)
 '''
 
 # see https://stackoverflow.com/questions/47895434/how-to-make-pipeline-for-multiple-dataframe-columns
-def get_results(params_representation, params_classification, classifier, train_indicies=None, test_indicies=None, test_size=0.2, random_state = 0, report = False, curve= False, save_results=True, average=False):
-    if average == False:
+def get_results(params_representation, params_classification, classifier, train_indicies=None, test_indicies=None, test_size=0.2, random_state = 0, report = False, curve= False, save_results=True, repeat=False):
+    if repeat == False:
         file = open(results_path,'r',encoding='utf8')
         results_object = json.load(file)
         file.close()
@@ -321,7 +321,7 @@ def get_results(params_representation, params_classification, classifier, train_
         results['report_roc'] = classification_report(y_test, y_roc_pred)
     print(results)
     # save results
-    if save_results == True and average == False:
+    if save_results == True and repeat == False:
         d1={}
         d2={}
         d3={}
@@ -398,7 +398,7 @@ def get_best_combination_with_results(param_grid_representation, param_grid_clas
     num_cores = num_available_cores - 10
     pool = multiprocessing.Pool(processes=num_cores)
     f=partial(get_combination_with_results, all_keys=all_keys, keys_representation=keys_representation, classifier=classifier, test_size=test_size) 
-    _ = pool.map(f, all_combinations) #returns list of [[params_representation_dict,params_classification_dict], results] 
+    _ = pool.imap_unordered(f, all_combinations) #returns list of [[params_representation_dict,params_classification_dict], results] 
     '''
     list_of_combination_results = pool.map(f, all_combinations) #returns list of [[params_representation_dict,params_classification_dict], results] 
     list_of_combination_results = [item for item in list_of_combination_results if item[1] is not None] 
@@ -420,11 +420,14 @@ def get_best_combination_with_results(param_grid_representation, param_grid_clas
     return best_params_representation, best_params_classification, best_results
 
 
-def get_averaged_results(params_representation, params_classification,classifier,num_runs=5,train_indicies=None, test_indicies=None,test_size=0.2, report=False, curve=True):
+def get_averaged_results(params_representation, params_classification,classifier,num_runs=5,train_indicies=None, test_indicies=None,test_size=0.2, report=False, curve=True, saveas = 'best'):
+    language_dependency = False
+    if any(isinstance(el, list) for el in train_indicies): # multiple runs from language dependency task 
+        language_dependency = True
     betw_results = {}
     final_results = {}
     random_state = 10
-    multiple_best_results = {}
+    average_results = {}
     for n in range(num_runs): # make report for the last run only
         if n < (num_runs-1):
             r = False
@@ -432,12 +435,18 @@ def get_averaged_results(params_representation, params_classification,classifier
             r = True
         else : # (report == False) and (n == num_runs-1)
             r = False
-        results = get_results(params_representation, params_classification,classifier,train_indicies=train_indicies,test_indicies= test_indicies,test_size=test_size,random_state = random_state+n, report=r, curve=curve, average=True)
-        multiple_best_results["best_results_" + str(n)] = results        
+        if language_dependency == True:
+            tr_i = train_indicies[n]
+            te_i = test_indicies[n]
+        else:
+            tr_i = train_indicies
+            te_i = test_indicies
+        results = get_results(params_representation, params_classification,classifier,train_indicies=tr_i,test_indicies= te_i,test_size=test_size,random_state = random_state+n, report=r, curve=curve, repeat=True)
+        average_results["results_" + str(n)] = results        
         file = open(results_path,'r',encoding='utf8')
         results_object = json.load(file)
-        file.close()        
-        results_object["multiple_best_results"] = multiple_best_results
+        file.close()
+        results_object["average_"+ saveas +"_results"] = average_results  # before "multiple_best_results"
         file = open(results_path,'w+',encoding='utf8')
         file.write(json.dumps(results_object))
         file.close()
@@ -486,20 +495,24 @@ def lang_dependency_set(lang, test_size=0.2):
     return train_indicies, train_dep_indicies, test_indicies  
 
 
-def compare_lang_dependency(lang,test_size=0.2):
+def compare_lang_dependency(lang,num_runs=5,test_size=0.2):
+    num_runs=5   
     ### split train and test set indicies for 1st and 2nd set up
-    train_indep_indicies, train_dep_indicies, test_indicies = lang_dependency_set(lang = lang, test_size = test_size)
-    print("lang : " + lang + "\n")
-    print("train_indep_indicies length: " + str(len(train_indep_indicies)) + "\n")
-    print("train_dep_indicies length: " + str(len(train_dep_indicies)) + "\n")
-    print("test_indicies length: " + str(len(test_indicies)) + "\n")
+    train_indep_indicies_list = []
+    train_dep_indicies_list = []
+    test_indicies_list = []
+    for i in range(num_runs):
+        train_indep_indicies, train_dep_indicies, test_indicies = lang_dependency_set(lang = lang, test_size = test_size)
+        train_indep_indicies_list.append(train_indep_indicies)
+        train_dep_indicies_list.append(train_dep_indicies)
+        test_indicies_list.append(test_indicies)
     ### apply best params and run num_runs times to take the average of the results 
-    # set number of runs
-    num_runs = 1
     # get results on 1st set up
-    results_dep = get_averaged_results(best_params_representation,best_params_classification,classifier,num_runs=num_runs,train_indicies=train_dep_indicies, test_indicies=test_indicies, report=True) 
+    results_dep = get_averaged_results(best_params_representation,best_params_classification,classifier,num_runs=num_runs,train_indicies=train_dep_indicies_list, test_indicies=test_indicies_list, report=True, saveas=lang+"dep") 
+    #results_dep = get_results(best_params_representation, best_params_classification,classifier,train_indicies=train_dep_indicies,test_indicies= test_indicies,test_size=test_size, report=True, curve=True, repeat=True)
     # get results on 2nd set up
-    results_indep = get_averaged_results(best_params_representation,best_params_classification,classifier, num_runs=num_runs, train_indicies=train_indep_indicies, test_indicies=test_indicies, report= True) 
+    results_indep = get_averaged_results(best_params_representation,best_params_classification,classifier, num_runs=num_runs, train_indicies=train_indep_indicies_list, test_indicies=test_indicies_list, report= True, saveas=lang+"indep") 
+    #results_indep = get_results(best_params_representation, best_params_classification,classifier,train_indicies=train_indep_indicies,test_indicies= test_indicies,test_size=test_size, report=True, curve=True, repeat=True)
     # compare results of 1st and 2nd set up
     print("results_dep: " + str(results_dep) + "\n")
     print("results_indep: " + str(results_indep) + "\n")
@@ -647,7 +660,7 @@ with io.open(results_path,'w+',encoding='utf8') as file:
     '''
 best_params_representation, best_params_classification, best_results = get_best_combination_with_results(param_grid_tfidf, param_grid_classification, score, classifier)
 
-###### OR LOAD SAVED BEST RESULTS ######
+###### LOAD SAVED BEST RESULTS ######
 ##### FROM MOST RECENT RESULTS FILE ####
 ## adapt results_path to the most recent saved results path
 results_path = adapt_resultspath(pth, pos=0)
@@ -782,7 +795,33 @@ result_12 = get_results({"max_df": 0.95, "min_df": 0.001}, {"alpha": 0.5, "fit_p
 result_13 = get_results({"max_df": 0.95, "min_df": 0.001}, {"alpha": 0.5, "fit_prior": True}, classifier)
 
 
+LinearSVC:
+"best_params_representation": {"max_df": 0.8, "min_df": 0.011},
+"best_params_classification": {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'},
+"best_results": {... "auprc": 0.95732}}
 
+Comparing with best results in previous results_file:
+max df:0.8, min df:0.011, C: 0.1, penalty: l2
+
+test manually also (these combinations (probably) don't appear in the current results_file yet):
+result_0 = get_results({"max_df": 0.8, "min_df": 0.011}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
+result_1 = get_results({"max_df": 0.95, "min_df": 0.001}, {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
+result_2 = get_results({"max_df": 0.95, "min_df": 0.001}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
+result_3 = get_results({"max_df": 0.9, "min_df": 0.001}, {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
+result_4 = get_results({"max_df": 0.9, "min_df": 0.001}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
+result_5 = get_results({"max_df": 0.85, "min_df": 0.001}, {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
+result_6 = get_results({"max_df": 0.85, "min_df": 0.001}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
+result_7 = get_results({"max_df": 0.8, "min_df": 0.001}, {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
+result_8 = get_results({"max_df": 0.8, "min_df": 0.001}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
+--> *** auprc: 0.95867 ***
+result_9 = get_results({"max_df": 0.95, "min_df": 0.011}, {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
+result_10 = get_results({"max_df": 0.95, "min_df": 0.011}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
+result_11 = get_results({"max_df": 0.9, "min_df": 0.011}, {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
+result_12 = get_results({"max_df": 0.9, "min_df": 0.011}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
+result_13 = get_results({"max_df": 0.85, "min_df": 0.011}, {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
+result_14 = get_results({"max_df": 0.85, "min_df": 0.011}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
+result_15 = get_results({"max_df": 0.8, "min_df": 0.011}, {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
+result_16 = get_results({"max_df": 0.8, "min_df": 0.011}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
 
 
 '''
@@ -792,7 +831,7 @@ result_13 = get_results({"max_df": 0.95, "min_df": 0.001}, {"alpha": 0.5, "fit_p
 averaged_results = get_averaged_results(best_params_representation,best_params_classification,classifier) # apply best params and run num_runs times and take the average of the results as best result
 
 ################## save best parameter values and the results 
-best_combination["best_averaged_results"] = averaged_results
+best_combination["best_results_averaged"] = averaged_results  # before "best_averaged_results"
 file = open(results_path,'r',encoding='utf8')
 results_object = json.load(file)
 file.close() 
@@ -815,7 +854,7 @@ for param in best_params_classification:
     print(param + " : " + str(best_value) + "\n")
 
 print("\n")
-print("Final (" + str(num_runs) + "-averaged) evaluation results: \n")
+print("Final (5-averaged) evaluation results: \n")
 
 for metric in best_results:
     result = best_results[metric]
@@ -834,12 +873,11 @@ same for italian, french and english
 
 ########## test language (in)dependency and save the results
 ## set test size
-test_size = 0.2
 languages = ['de','fr','it','en']
 half = int(len(languages)/2) # 2 if len(languages) is 5
 dep_count = 0
 for lang in languages:
-    dep_result = compare_lang_dependency(lang, test_size=test_size) # returns 1 (dependent is better) or 0 (independent is better)
+    dep_result = compare_lang_dependency(lang) # returns 1 (dependent is better) or 0 (independent is better)
     dep_count = dep_count + dep_result
 
 overall_dependency_result = dep_count/len(languages)

@@ -61,8 +61,54 @@ from glob import iglob
 from os import path
 from filelock import FileLock
 from sklearn.metrics import classification_report
+from numpy import argmax
+from numpy import sqrt
+from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import precision_score
+from sklearn.metrics import recall_score
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import average_precision_score
+from sklearn.metrics import recall_score
+from sklearn.metrics import f1_score
+from sklearn.metrics import roc_curve
+from sklearn.metrics import recall_score
+from sklearn.metrics import confusion_matrix
+from imblearn.metrics import geometric_mean_score
+from sklearn.metrics import classification_report
+from sklearn.utils.extmath import softmax
 
 ################# definitions
+def get_best_combination_name(results_object):
+    score_value = 0.0
+    best_comb_name = ""
+    for name,res in results_object.items():
+        if 'comb' not in name:
+            continue
+        if 'results' not in res:
+            continue
+        v = results_object[name]['results'][score]
+        if v > score_value:
+            score_value = v
+            best_comb_name = name
+    return best_comb_name
+
+def adapt_resultspath(pth, pos=0):
+    # pos=0 to access most recent already existing results file
+    # pos=1 to create and access new results file
+    num = 0
+    model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
+    results_path = model_path(num)
+    if os.path.exists(results_path):
+        bn_list = list(map(path.basename,iglob(pth+"*.json")))
+        num_list = []
+        for bn in bn_list:
+            num_list.extend(int(i) for i in re.findall('\d+', bn))
+        max_num = max(num_list)
+        new_num = max_num + pos
+        results_path = model_path(new_num)
+    return results_path
+
 
 def equal(X_test,y_test):
     ## make number of yes == number of no
@@ -246,7 +292,17 @@ def get_predictions(threshold, prediction_scores):
 
 
 
-def get_results(params_wordembeddings, params_classification,name=0,train_indicies=None,test_indicies=None, random_state = 0, report = False, curve= False):       
+def get_results(params_wordembeddings, params_classification,name=0,train_indicies=None,test_indicies=None, test_size=0.2, random_state = 0, report = False, curve= False, save_results=True, repeat=False):       
+    if repeat == False:
+        file = open(results_path,'r',encoding='utf8')
+        results_object = json.load(file)
+        file.close()
+        for _,res in results_object.items():
+            if 'params_wordembeddings' not in res:
+                continue
+            if res['params_wordembeddings'] == params_wordembeddings and res['params_classification'] == params_classification:
+                print("wordembeddings and classification parameters already exist in the current results_file\n")
+                return res['results']
     _, X_test, _, y_test, train_file = get_train_test_sets(train_indicies, test_indicies,test_size= test_size, random_state=random_state)
     model_name = "comb_" + str(name)
     # bin_path = "word_vectors/fasttext/" + model_name + ".bin" 
@@ -328,9 +384,34 @@ def get_results(params_wordembeddings, params_classification,name=0,train_indici
         results['report_prc'] = classification_report(y_test,y_prc_pred)
         results['report_roc'] = classification_report(y_test, y_roc_pred)
     print(str(results))
+    # save results
+    if save_results == True and repeat == False:
+        d1={}
+        d2={}
+        d3={}
+        d4={}
+        d1['params_wordembeddings'] = params_wordembeddings
+        d2['params_classification'] = params_classification
+        d3['results'] = results
+        lock_path = results_path + ".lock" 
+        with FileLock(lock_path):
+            file = open(results_path,'r',encoding='utf8')
+            results_object = json.load(file)
+            file.close()                           
+            number_of_combinations = len([key for key, value in results_object.items() if 'comb' in key.lower()])
+            comb_nr = "comb_" + str(number_of_combinations+1)
+            d4[comb_nr] = {}
+            d4[comb_nr].update(d1)
+            d4[comb_nr].update(d2)
+            d4[comb_nr].update(d3)
+            results_object.update(d4)            
+            file = open(results_path,'w+',encoding='utf8')
+            file.write(json.dumps(results_object))
+            file.close()
     return results
 
-def get_combination_with_results(combination,all_keys, keys_wordembeddings):
+
+def get_combination_with_results(combination,all_keys, keys_wordembeddings, test_size=0.2):
     params_wordembeddings = {}
     params_classification = {}
     d1={}
@@ -343,7 +424,7 @@ def get_combination_with_results(combination,all_keys, keys_wordembeddings):
             params_wordembeddings[a] = b
         else:
             params_classification[a] = b
-    results = get_results(params_wordembeddings, params_classification, name=name) # returns dict of accuracy, precision, recall, auc, auprc
+    results = get_results(params_wordembeddings, params_classification, name=name, test_size=test_size) # returns dict of accuracy, precision, recall, auc, auprc
     d1['params_wordembeddings'] = params_wordembeddings
     d2['params_classification'] = params_classification
     d3['results'] = results
@@ -365,7 +446,7 @@ def get_combination_with_results(combination,all_keys, keys_wordembeddings):
     return [[params_wordembeddings,params_classification], results] 
 
 
-def get_best_combination_with_results(param_grid_wordembeddings, param_grid_classification):
+def get_best_combination_with_results(param_grid_wordembeddings, param_grid_classification,score,test_size=2):
     keys_wordembeddings = list(param_grid_wordembeddings.keys())
     values_wordembeddings = list(param_grid_wordembeddings.values())
     keys_classification = list(param_grid_classification.keys())
@@ -373,28 +454,36 @@ def get_best_combination_with_results(param_grid_wordembeddings, param_grid_clas
     all_values = values_wordembeddings + values_classification
     all_keys = keys_wordembeddings + keys_classification
     all_combinations = list(itertools.product(*all_values))
-    print("A\n")
-    num_available_cores = len(os.sched_getaffinity(0)) - 12
-    print("B\n")
-    pool = multiprocessing.Pool(processes=num_available_cores)
-    print("C\n")
+    num_available_cores = len(os.sched_getaffinity(0))
+    num_cores = num_available_cores - 10
+    pool = multiprocessing.Pool(processes=num_cores)
     f=partial(get_combination_with_results, all_keys=all_keys, keys_wordembeddings=keys_wordembeddings) 
     print("D\n")
+    _ = pool.imap_unordered(f, all_combinations) #returns list of [[params_wordembeddings_dict,params_classification_dict], results_dict]     
+    '''
     list_of_combination_results = pool.map(f, all_combinations) #returns list of [[params_wordembeddings_dict,params_classification_dict], results_dict] 
     list_of_combination_results = [item for item in list_of_combination_results if item[1] is not None]     
     max_score_value = max(results[score] for combination,results in list_of_combination_results)
-    max_comb_results = [[combination,results] for combination,results in list_of_combination_results if results[score] == max_score_value] # list of [[params_representation_dict,params_classification_dict], results] 
+    max_comb_results = [[combination,results] for combination,results in list_of_combination_results if results[score] == max_score_value] # list of [[params_wordembeddings,params_classification], results] 
     print("Length of max_comb_results :" + str(len(max_comb_results)))
     best_results = max_comb_results[0][1].copy() 
     best_params_wordembeddings = max_comb_results[0][0][0].copy()
     best_params_classification = max_comb_results[0][0][1].copy()
+    '''
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close()
+    best_comb_name = get_best_combination_name(results_object)
+    best_params_wordembeddings = results_object[best_comb_name]["params_wordembeddings"]
+    best_params_classification = results_object[best_comb_name]["params_classification"]
+    best_results = results_object[best_comb_name]["results"]
     return best_params_wordembeddings, best_params_classification, best_results
 
-def get_averaged_results(params_wordembeddings, params_classification,num_runs=5,train_indicies = None, test_indicies = None, report= False, curve= True):
+def get_averaged_results(params_wordembeddings, params_classification,num_runs=5,train_indicies = None, test_indicies = None, test_size=0.2, report= False, curve= True, saveas='best'):
     betw_results = {}
     final_results = {}
     random_state = 10
-    multiple_best_results = {}
+    average_results = {}   # before multi
     for n in range(num_runs):
         if n < (num_runs-1):
             r = False
@@ -402,13 +491,18 @@ def get_averaged_results(params_wordembeddings, params_classification,num_runs=5
             r = True
         else: # (report == False) and (n == num_runs-1):
             r = False
-        results = get_results(params_wordembeddings, params_classification,name = n,train_indicies=train_indicies,test_indicies=test_indicies,random_state = random_state+n ,report=r, curve=curve)
-        multiple_best_results["best_results_" + str(n)] = results
-        #print("results run " + str(n) + ": " + str(results))
+        if any(isinstance(el, list) for el in train_indicies) == True: # if list of lists
+            tr_i = train_indicies[n]
+            te_i = test_indicies[n]
+        else:
+            tr_i = train_indicies
+            te_i = test_indicies
+        results = get_results(params_wordembeddings, params_classification,name = n,train_indicies=tr_i,test_indicies=te_i, test_size = test_size,random_state = random_state+n ,report=r, curve=curve, repeat=True)
+        average_results["results_" + str(n)] = results  # before 'best_results'
         file = open(results_path,'r',encoding='utf8')
         results_object = json.load(file)
         file.close()
-        results_object["multiple_best_results_" + str(n)] = multiple_best_results
+        results_object["average_"+ saveas +"_results"] = average_results  # before "multiple_best_results"
         file = open(results_path,'w+',encoding='utf8')
         file.write(json.dumps(results_object))
         file.close()
@@ -416,16 +510,18 @@ def get_averaged_results(params_wordembeddings, params_classification,num_runs=5
             betw_results.setdefault(m,[]).append(results[m])
         #print("between results : " + str(betw_results))
     for m in results:
-        a = betw_results[m] 
-        if not any(isinstance(el, list) for el in a):
-            final_results[m] = round(float(sum(a)/len(a)),5)
-        else: # e.g. a = [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]]
+        a = betw_results[m]
+        if 'report' in m:
+            final_results[m] = results[m]
+        elif 'threshold' in m:
+            continue # we don't need the average thresholds
+        elif 'curve' in m: # e.g. a = [[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]]
             b = list(map(list, zip(*a))) # [[[1, 2], [7, 8]], [[3, 4], [9, 10]], [[5, 6], [11, 12]]]
             c = [list(map(list, zip(*i))) for i in b]  # [[[1, 7], [2, 8]], [[3, 9], [4, 10]], [[5, 11], [6, 12]]]
             d = [[round(float(sum(subsubc)/len(subsubc)),5) for subsubc in subc] for subc in c] # subc = [[1, 7], [2, 8]], subsubc = [1, 7]
             final_results[m] = d
-    if report == True:
-        final_results['report'] = results['report']
+        else:
+            final_results[m] = round(float(sum(a)/len(a)),5)
     return final_results
 
 def lang_dependency_set(lang, test_size=0.2):
@@ -452,15 +548,23 @@ def lang_dependency_set(lang, test_size=0.2):
     return train_indicies, train_dep_indicies, test_indicies  
 
 def compare_lang_dependency(lang, test_size=0.2):
-    ### split train and test set indicies for 1st and 2nd set up *** each time when called --> different set
-    train_indep_indicies, train_dep_indicies, test_indicies = lang_dependency_set(test_size = test_size, lang = lang)
-    ### apply best params and run num_runs times to take the average of the results 
-    num_runs = 1
+    num_runs=5   
+    ### split train and test set indicies for 1st and 2nd set up
+    train_indep_indicies_list = []
+    train_dep_indicies_list = []
+    test_indicies_list = []
+    for i in range(num_runs):
+        train_indep_indicies, train_dep_indicies, test_indicies = lang_dependency_set(lang = lang, test_size = test_size)
+        train_indep_indicies_list.append(train_indep_indicies)
+        train_dep_indicies_list.append(train_dep_indicies)
+        test_indicies_list.append(test_indicies)
     # get results on 1st set up
-    results_dep = get_averaged_results(best_params_wordembeddings,best_params_classification,num_runs=num_runs,train_indicies= train_dep_indicies, test_indicies=test_indicies, report= True) 
+    results_dep = get_averaged_results(best_params_wordembeddings,best_params_classification,num_runs=num_runs,train_indicies=train_dep_indicies_list, test_indicies=test_indicies_list, test_size=test_size, report=True, saveas=lang+"dep") 
     # get results on 2nd set up
-    results_indep = get_averaged_results(best_params_wordembeddings,best_params_classification,num_runs=num_runs, train_indicies=train_indep_indicies, test_indicies= test_indicies, report= True) 
+    results_indep = get_averaged_results(best_params_wordembeddings,best_params_classification, num_runs=num_runs, train_indicies=train_indep_indicies_list, test_indicies=test_indicies_list, test_size=test_size, report= True, saveas=lang+"indep") 
     # compare results of 1st and 2nd set up
+    print("results_dep: " + str(results_dep) + "\n")
+    print("results_indep: " + str(results_indep) + "\n")
     if results_dep[score] > results_indep[score]:
         dependency_result = 1  # dependent is better
     else:
@@ -586,28 +690,16 @@ with io.open(data_file,'w',encoding='utf8') as f:
 
 
 ######################################### ***** ADAPT THIS PART ***** ####################################################
-num = 0
 pth = "./models/model_FastText/model_1/"
-model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
-results_path = model_path(num)
 score = "auprc" # choose among 'auprc', 'auc', 'f1', 'accuracy', 'precision', 'recall'
-test_size=0.2
 ################################################# ***** RUN THIS PART ***** ###############################################
-###### EVENTUALLY REMOVE FILE MANUALLY ######
-# check if file already exists, if yes create new one
+###### CREATE NEW RESULTS FILE ######
 # prepare framework for saving results
 results_object={}
 results_object['tune_param_wordembeddings'] = param_grid_wordembeddings
 results_object['tune_param_classification'] = param_grid_classification
 results_object['score'] = score
-if os.path.exists(results_path):
-    bn_list = list(map(path.basename,iglob(pth+"*.json")))
-    num_list = []
-    for bn in bn_list:
-        num_list.extend(int(i) for i in re.findall('\d+', bn))
-    max_num = max(num_list)
-    num = max_num + 1
-    results_path = model_path(num)
+results_path = adapt_resultspath(pth, pos=1)
 
 with io.open(results_path,'w+',encoding='utf8') as file:
     json.dump(results_object, file) 
@@ -620,47 +712,70 @@ with io.open(results_path,'w+',encoding='utf8') as file:
 #X_train, X_test, y_train, y_test, train_file = get_train_test_sets()
 best_params_wordembeddings, best_params_classification, best_results = get_best_combination_with_results(param_grid_wordembeddings, param_grid_classification, score)
 
-############## OR load the (saved) best results
-if os.path.exists(results_path):
-    bn_list = list(map(path.basename,iglob(pth+"*.json")))
-    num_list = []
-    for bn in bn_list:
-        num_list.extend(int(i) for i in re.findall('\d+', bn))
-    max_num = max(num_list)
-    results_path = model_path(max_num)
-
-with io.open(results_path,'r+',encoding='utf8') as file:
-    results_object = json.load(file)
-
-score_value = 0.0
-best_comb_name = ""
-for name,res in results_object.items():
-    if 'comb' not in name:
-        continue
-    if 'results' not in res:
-        continue
-    v = results_object[name]['results'][score]
-    if v > score_value:
-        score_value = v
-        best_comb_name = name
-
-best_params_wordembeddings = results_object[best_comb_name]["params_wordembeddings"]
-best_params_classification = results_object[best_comb_name]["params_classification"]
-best_results = results_object[best_comb_name]["results"]
-
-################## run 5 times with best parameter values and take the average 
-averaged_results = get_averaged_results(best_params_wordembeddings,best_params_classification) 
-
-################## save best parameter values and the results 
-best_combination = {}
-best_combination["best_params_wordembeddings"] = best_params_wordembeddings
-best_combination["best_params_classification"] = best_params_classification
-best_combination["best_results"] =  best_results
-best_combination["best_average_results"] = averaged_results
+###### LOAD SAVED BEST RESULTS ######
+##### FROM MOST RECENT RESULTS FILE ####
+## adapt results_path to the most recent saved results path
+results_path = adapt_resultspath(pth, pos=0)
 
 file = open(results_path,'r',encoding='utf8')
 results_object = json.load(file)
 file.close()
+
+best_comb_name = get_best_combination_name(results_object)
+best_params_wordembeddings = results_object[best_comb_name]["params_wordembeddings"]
+best_params_classification = results_object[best_comb_name]["params_classification"]
+best_results = results_object[best_comb_name]["results"]
+# save
+best_combination = {}
+best_combination["best_params_wordembeddings"] = best_params_wordembeddings
+best_combination["best_params_classification"] = best_params_classification
+best_combination["best_results"] =  best_results
+file = open(results_path,'r',encoding='utf8')
+results_object = json.load(file)
+file.close() 
+results_object["best_combination"] = best_combination
+file = open(results_path,'w+',encoding='utf8')
+file.write(json.dumps(results_object))
+file.close()
+
+# OR: get saved best combination
+#    best_params_representation= results_object["best_combination"]["best_params_representation"]
+#    best_params_classification = results_object["best_combination"]["best_params_classification"]
+#    best_results = results_object["best_combination"]["best_results"]
+
+'''
+FastText:
+"best_params_wordembeddings": {'dim':50, 'minn':2, 'maxn':5, 'epoch':2, 'lr':0.01},
+"best_params_classification": {'epoch':49, 'lr':0.09, 'wordNgrams':1, 'dim':50},
+"best_results": {... "auprc": 0.96487}}
+
+comparing with best results from previous run/results_file:
+"best_params_wordembeddings": {'dim':50, 'minn':2, 'maxn':6, 'epoch':2, 'lr':0.07},
+"best_params_classification": {'epoch':38, 'lr':0.09, 'wordNgrams':2, 'dim':50},
+
+test manually also (these combinations don't appear in results_file yet):
+result_0 = get_results({'model':'skipgram', 'loss':'hs','dim':50, 'minn':2, 'maxn':6, 'epoch':2, 'lr':0.07}, {'loss':'hs', 'epoch':38, 'lr':0.09, 'wordNgrams':2, 'dim':50})
+result_1 = get_results({'model':'skipgram', 'loss':'hs','dim':50, 'minn':2, 'maxn':6, 'epoch':2, 'lr':0.01}, {'loss':'hs','epoch':38, 'lr':0.09, 'wordNgrams':2, 'dim':50})
+result_2 = get_results({'model':'skipgram', 'loss':'hs','dim':50, 'minn':2, 'maxn':5, 'epoch':2, 'lr':0.07}, {'loss':'hs','epoch':38, 'lr':0.09, 'wordNgrams':2, 'dim':50})
+result_3 = get_results({'model':'skipgram', 'loss':'hs','dim':50, 'minn':2, 'maxn':6, 'epoch':2, 'lr':0.07}, {'loss':'hs','epoch':38, 'lr':0.09, 'wordNgrams':1, 'dim':50})
+result_4 = get_results({'model':'skipgram', 'loss':'hs','dim':50, 'minn':2, 'maxn':6, 'epoch':2, 'lr':0.01}, {'loss':'hs','epoch':38, 'lr':0.09, 'wordNgrams':1, 'dim':50})
+result_5 = get_results({'model':'skipgram', 'loss':'hs','dim':50, 'minn':2, 'maxn':5, 'epoch':2, 'lr':0.07}, {'loss':'hs','epoch':38, 'lr':0.09, 'wordNgrams':1, 'dim':50})
+
+Do they achieve better results?
+'''
+
+
+
+
+################## run 5 times with best parameter values and take the average 
+averaged_results = get_averaged_results(best_params_wordembeddings,best_params_classification) 
+
+################## save best parameter values and the averaged results 
+
+best_combination["best_results_averaged"] = averaged_results  # before "best_averaged_results"
+file = open(results_path,'r',encoding='utf8')
+results_object = json.load(file)
+file.close() 
 results_object["best_combination"] = best_combination
 file = open(results_path,'w+',encoding='utf8')
 file.write(json.dumps(results_object))
@@ -698,12 +813,11 @@ same for italian, french and english
 
 ########## test language (in)dependency and save the results
 ## set test size
-test_size = 0.2
 languages = ['de','fr','it','en']
 half = int(len(languages)/2) # 2 if len(languages) is 5
 dep_count = 0
 for lang in languages:
-    dep_result = compare_lang_dependency(lang, test_size=test_size) # returns 1 (dependent is better) or 0 (independent is better)
+    dep_result = compare_lang_dependency(lang) # returns 1 (dependent is better) or 0 (independent is better)
     dep_count = dep_count + dep_result
 
 overall_dependency_result = dep_count/len(languages)
