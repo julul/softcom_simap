@@ -421,9 +421,6 @@ def get_best_combination_with_results(param_grid_representation, param_grid_clas
 
 
 def get_averaged_results(params_representation, params_classification,classifier,num_runs=5,train_indicies=None, test_indicies=None,test_size=0.2, report=False, curve=True, saveas = 'best'):
-    language_dependency = False
-    if any(isinstance(el, list) for el in train_indicies): # multiple runs from language dependency task 
-        language_dependency = True
     betw_results = {}
     final_results = {}
     random_state = 10
@@ -435,14 +432,14 @@ def get_averaged_results(params_representation, params_classification,classifier
             r = True
         else : # (report == False) and (n == num_runs-1)
             r = False
-        if language_dependency == True:
+        if any(isinstance(el, list) for el in train_indicies) == True: # if list of lists
             tr_i = train_indicies[n]
             te_i = test_indicies[n]
         else:
             tr_i = train_indicies
             te_i = test_indicies
         results = get_results(params_representation, params_classification,classifier,train_indicies=tr_i,test_indicies= te_i,test_size=test_size,random_state = random_state+n, report=r, curve=curve, repeat=True)
-        average_results["results_" + str(n)] = results        
+        average_results["results_" + str(n)] = results    # before 'best_results'    
         file = open(results_path,'r',encoding='utf8')
         results_object = json.load(file)
         file.close()
@@ -496,7 +493,6 @@ def lang_dependency_set(lang, test_size=0.2):
 
 
 def compare_lang_dependency(lang,num_runs=5,test_size=0.2):
-    num_runs=5   
     ### split train and test set indicies for 1st and 2nd set up
     train_indep_indicies_list = []
     train_dep_indicies_list = []
@@ -508,10 +504,10 @@ def compare_lang_dependency(lang,num_runs=5,test_size=0.2):
         test_indicies_list.append(test_indicies)
     ### apply best params and run num_runs times to take the average of the results 
     # get results on 1st set up
-    results_dep = get_averaged_results(best_params_representation,best_params_classification,classifier,num_runs=num_runs,train_indicies=train_dep_indicies_list, test_indicies=test_indicies_list, report=True, saveas=lang+"dep") 
+    results_dep = get_averaged_results(best_params_representation,best_params_classification,classifier,num_runs=num_runs,train_indicies=train_dep_indicies_list, test_indicies=test_indicies_list, test_size=test_size report=True, saveas=lang+"dep") 
     #results_dep = get_results(best_params_representation, best_params_classification,classifier,train_indicies=train_dep_indicies,test_indicies= test_indicies,test_size=test_size, report=True, curve=True, repeat=True)
     # get results on 2nd set up
-    results_indep = get_averaged_results(best_params_representation,best_params_classification,classifier, num_runs=num_runs, train_indicies=train_indep_indicies_list, test_indicies=test_indicies_list, report= True, saveas=lang+"indep") 
+    results_indep = get_averaged_results(best_params_representation,best_params_classification,classifier, num_runs=num_runs, train_indicies=train_indep_indicies_list, test_indicies=test_indicies_list, test_size=test_size, report= True, saveas=lang+"indep") 
     #results_indep = get_results(best_params_representation, best_params_classification,classifier,train_indicies=train_indep_indicies,test_indicies= test_indicies,test_size=test_size, report=True, curve=True, repeat=True)
     # compare results of 1st and 2nd set up
     print("results_dep: " + str(results_dep) + "\n")
@@ -854,7 +850,7 @@ for param in best_params_classification:
     print(param + " : " + str(best_value) + "\n")
 
 print("\n")
-print("Final (5-averaged) evaluation results: \n")
+print("Final (averaged) evaluation results: \n")
 
 for metric in best_results:
     result = best_results[metric]
