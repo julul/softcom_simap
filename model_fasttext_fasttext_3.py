@@ -491,7 +491,8 @@ def get_averaged_results(params_wordembeddings, params_classification,num_runs=5
             r = True
         else: # (report == False) and (n == num_runs-1):
             r = False
-        if any(isinstance(el, list) for el in train_indicies) == True: # if list of lists
+        #if any(isinstance(el, list) for el in train_indicies) == True: # if list of lists
+        if train_indicies is not None:
             tr_i = train_indicies[n]
             te_i = test_indicies[n]
         else:
@@ -529,23 +530,23 @@ def lang_dependency_set(lang, test_size=0.2):
     k = len(lang_indicies[lang]) * test_size
     dep_test_indicies = random.sample(dep_indicies, int(k)) # each time when called --> different set 
     test_indicies = []
-    train_indicies = []    
+    train_dep_indicies = []    
     for i in range(len(lang_indicies[lang])):
         df_index = lang_indicies[lang][i]
         if i in dep_test_indicies:
             test_indicies.append(df_index)
         else:
-            train_indicies.append(df_index)
+            train_dep_indicies.append(df_index)
      # avoid problem:
      #  While using new_list = my_list, any modifications to new_list changes my_list everytime. 
      # --> use list.copy()
-    train_dep_indicies = train_indicies.copy()
+    train_indep_indicies = train_dep_indicies.copy()
     for l in lang_indicies:
         if l == lang:
             continue
         else:
-            train_indicies.extend(lang_indicies[l])   
-    return train_indicies, train_dep_indicies, test_indicies  
+            train_indep_indicies.extend(lang_indicies[l])   
+    return train_indep_indicies, train_dep_indicies, test_indicies  
 
 def compare_lang_dependency(lang, test_size=0.2):
     num_runs=5   

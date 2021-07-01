@@ -432,7 +432,8 @@ def get_averaged_results(params_representation, params_classification,classifier
             r = True
         else : # (report == False) and (n == num_runs-1)
             r = False
-        if any(isinstance(el, list) for el in train_indicies) == True: # if list of lists
+        #if any(isinstance(el, list) for el in train_indicies) == True: # if list of lists
+        if train_indicies is not None:
             tr_i = train_indicies[n]
             te_i = test_indicies[n]
         else:
@@ -473,23 +474,23 @@ def lang_dependency_set(lang, test_size=0.2):
     k = len(lang_indicies[lang]) * test_size
     dep_test_indicies = random.sample(dep_indicies, int(k)) # at each run, a new random sampling
     test_indicies = []
-    train_indicies = []    
+    train_dep_indicies = []    
     for i in range(len(lang_indicies[lang])):
         df_index = lang_indicies[lang][i]
         if i in dep_test_indicies:
             test_indicies.append(df_index)
         else:
-            train_indicies.append(df_index)
+            train_dep_indicies.append(df_index)
      # avoid problem:
      #  While using new_list = my_list, any modifications to new_list changes my_list everytime. 
      # --> use list.copy()
-    train_dep_indicies = train_indicies.copy()
+    train_indep_indicies = train_dep_indicies.copy()
     for l in lang_indicies:
         if l == lang:
             continue
         else:
-            train_indicies.extend(lang_indicies[l])   
-    return train_indicies, train_dep_indicies, test_indicies  
+            train_indep_indicies.extend(lang_indicies[l]) 
+    return train_indep_indicies, train_dep_indicies, test_indicies  
 
 
 def compare_lang_dependency(lang,num_runs=5,test_size=0.2):
@@ -504,7 +505,7 @@ def compare_lang_dependency(lang,num_runs=5,test_size=0.2):
         test_indicies_list.append(test_indicies)
     ### apply best params and run num_runs times to take the average of the results 
     # get results on 1st set up
-    results_dep = get_averaged_results(best_params_representation,best_params_classification,classifier,num_runs=num_runs,train_indicies=train_dep_indicies_list, test_indicies=test_indicies_list, test_size=test_size report=True, saveas=lang+"dep") 
+    results_dep = get_averaged_results(best_params_representation,best_params_classification,classifier,num_runs=num_runs,train_indicies=train_dep_indicies_list, test_indicies=test_indicies_list, test_size=test_size, report=True, saveas=lang+"dep") 
     #results_dep = get_results(best_params_representation, best_params_classification,classifier,train_indicies=train_dep_indicies,test_indicies= test_indicies,test_size=test_size, report=True, curve=True, repeat=True)
     # get results on 2nd set up
     results_indep = get_averaged_results(best_params_representation,best_params_classification,classifier, num_runs=num_runs, train_indicies=train_indep_indicies_list, test_indicies=test_indicies_list, test_size=test_size, report= True, saveas=lang+"indep") 
@@ -857,9 +858,9 @@ for metric in best_results:
     print(metric + " : " + str(result) + "\n")
 
 ##################################### compare LANGUAGE DEPENDENCY with LANGUAGE INDEPENDENCY #######################################
-'''
-Test if applying TFIDF on each language separately gives better results or independently of the language
+# TODO: Test also if applying TFIDF on each language separately gives better results or independently of the language
 
+'''
 Compare 1st set up with 2nd set up
 - 1st set up: train on 80% german, evaluate on 20% german
 - 2nd set up: train on 100% italian, 100% french, 100% english, 80% german all together at once. evaluate on *the same* 20% german
@@ -868,7 +869,6 @@ same for italian, french and english
 '''
 
 ########## test language (in)dependency and save the results
-## set test size
 languages = ['de','fr','it','en']
 half = int(len(languages)/2) # 2 if len(languages) is 5
 dep_count = 0
