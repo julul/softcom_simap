@@ -38,44 +38,58 @@ from operator import or_
 import unidecode
 import glob, os
 
-os.chdir('./projects_ID_NO')
+
+################## load raw simap data
+path = './data/projects_ID_NO/'
+os.chdir(path)
 json_files = [file for file in glob.glob('*.json')]
-path = './projects_ID_NO/'
 files = [path + f for f in json_files]
 # go back
 os.chdir('..')
+os.chdir('..')
+labeled_path = './data/projects_ID_NO_labeled/'
+labeled_files = [labeled_path + f for f in json_files]
 
 
-######### TODO:
-# adapt cleaning step
-
-mistakes = ['\n']
-actuals = [' ']
-rep = {}
-
-# cleaning mistakes 
-for i in range(0,len(mistakes)) :
-    rep[mistakes[i]] = actuals[i]
-
-# use these three lines to do the replacement
-rep = dict((re.escape(k), v) for k, v in rep.items()) 
-#Python 3 renamed dict.iteritems to dict.items so use rep.items() for latest versions
-pattern = re.compile("|".join(rep.keys()))
 
 
-punctuations = {'«','»','!','(',')','-','[',']','{','}',';',':','\'','\"','\\',',','<','>','.','/','?','@','#','$','%','^','&','*','_','~', "''", '``', "'", "’", ' '}
-punctuations_str = '''«»!()-[]{};:''"\,<>./?@#$%^&*_~''``'’'''
-translator = str.maketrans(punctuations_str, ' '*len(punctuations_str))
+################### sum up all meaningless words
+languages = ["it","de","fr","en"]
+stopwords_lists = dict.fromkeys(languages, [])
+for l in languages:
+    stopwords_path = "./stopwords/sw_" + l + "_cleaned.txt"
+    f = open(stopwords_path,"r")
+    text = f.read()
+    words = ast.literal_eval(text) # convert string representation of list into list
+    stopwords_lists[l] = words
+
+meaningless_words = []
+for _, sw in stopwords_lists.items():
+    meaningless_words.extend(sw)
+
+# drop duplicates
+meaningless_words = list(dict.fromkeys(meaningless_words))
 
 
-with open(files[0], 'r') as f:
-    data=f.read()
-    # parse file
-    j_data = json.loads(data)
+################### some definitions
 
-main_keys = list(j_data.keys())
+def clean_text(text):
+    # lower text
+    text = text.lower()
+    # unaccent the words to make it language independent
+    text = unidecode.unidecode(text)
+    # text should contain only alphabetic chars
+    # any non-alphabetic chars like ',' or '\n' should be replaced by a space
+    regex = re.compile('[^a-zA-Z]')
+    text = regex.sub(' ', text)
+    # remove multiple spaces, words smaller than 3 letters, and meaningless words
+    text = ' '.join([w for w in text.split() if len(w)>2 and w not in meaningless_words])
+    return text
+
+
 
 def stand(d):
+    main_keys = list(d.keys())
     s_project = {}
     for k, v in d.items():
         v_new = []
@@ -86,50 +100,25 @@ def stand(d):
         #print("{0} : {1}".format(k, v))
             if isinstance(v, list):
                 for text in v:
-                    # remove unwanted substrings
-                    text = pattern.sub(lambda m: rep[re.escape(m.group(0))], text)
-                    # remove punctuation from text and replace by space
-                    text = str(text.translate(translator))
-                    # lower text
-                    text = text.lower()
-                    # unaccent the words to make it language independent
-                    text = unidecode.unidecode(text)
-                    # remove multiple spaces
-                    text = re.sub(' +', ' ', text)
+                    # clean text
+                    cleaned_text = clean_text(text) 
                     # split into tokens
-                    tokens = text.split()
+                    tokens = cleaned_text.split()
                     # add to new v
                     v_new.extend(tokens)
             else:
                 text = str(v)
-                # remove unwanted substrings
-                text = pattern.sub(lambda m: rep[re.escape(m.group(0))], text)
-                # remove punctuation from text and replace by space
-                text = str(text.translate(translator))
-                # lower text
-                text = text.lower()
-                # unaccent the words to make it language independent
-                text = unidecode.unidecode(text)
-                # remove multiple spaces
-                text = re.sub(' +', ' ', text)
+                cleaned_text = clean_text(text) 
                 # split into tokens
-                tokens = text.split()
+                tokens = cleaned_text.split()
                 # add to new v
                 v_new.extend(tokens)
         if k not in main_keys:
             k = str(k)
-            # remove unwanted substrings
-            k = pattern.sub(lambda m: rep[re.escape(m.group(0))], k)
-            # remove punctuation from text and replace by space
-            k = str(k.translate(translator))
-            # lower text
-            k = k.lower()
-            # unaccent the words to make it language independent
-            k = unidecode.unidecode(k)
-            # remove multiple spaces
-            k = re.sub(' +', ' ', k)
+            # clean k
+            cleaned_k = clean_text(k)
             # add to new value
-            k_new = k
+            k_new = cleaned_k
         else:
             k_new = k
         s_project[k_new] = v_new
@@ -198,22 +187,34 @@ yes_level4 = ['seco','upu','weltpostverein','afs','bar']
 no_level1_words = ['iam', 'omada','erp']
 no_level1_parts = ['vulnerab', 'infrastru', 'easygov']  # added easygov
 
-### TODO: possibly edit the sections
+
 section1 = ['nom officiel et adresse du pouvoir adjudicateur',
+            'nom officiel',
             'nome ufficiale e indirizzo del committente',
+            'nome ufficiale',
             'offizieller name und adresse des auftraggebers',
-            'official name and address of the contracting authority']
+            'offizieller name',
+            'official name and address of the contracting authority',
+            'official name']
 
 section2 = ['vocabulaire commun des marches publics',
+            'vocabulaire',
             'vocabolario comune per gli appalti pubblici',
+            'vocabolario',
             'common procurement vocabulary',
-            'gemeinschaftsvokabular']
+            'vocabulary',
+            'gemeinschaftsvokabular',
+            'vokabular']
 
 section3 = ['description detaillee des taches',
+            'detaillee',
             'descrizione dettagliata del progetto',
+            'dettagliata',
             'detaillierter produktebeschrieb',
+            'detaillierter',
             'detaillierter aufgabenbeschrieb',
-            'detailed task description']
+            'detailed task description',
+            'detailed']
 
 
 
@@ -235,13 +236,13 @@ no2 = 'rather negative'
 '''
 
 labels = []
-for file in files:
-    with open(file, 'r') as f:
+for i in range(len(json_files)):
+    with open(files[i], 'r') as f:
         data=f.read()
         # parse file
         p = json.loads(data)
     project = stand(p) # standardize the project
-    if 'label' in p:
+    if 'label' in p: # should actually not be the case
         del p['label']
     keys = list(project['project_details'].keys())
     sec1 = []
@@ -262,7 +263,7 @@ for file in files:
             break
     if 'label' in p: # label == yes1
         if p['label'] == 'yes1': # to be sure that label == yes1
-            with open(file, 'w') as outfile:
+            with open(labeled_files[i], 'w') as outfile:
                 json.dump(p, outfile) # save labeled project
             labels.append(p['label'])
             continue # go to next project
@@ -279,7 +280,7 @@ for file in files:
             if delegation_criteria(cpv_list,sec3): # check the criteria for 'delegation'
                 p['label'] = 'yes1'
         if p['label'] == 'yes1':
-            with open(file, 'w') as outfile:
+            with open(labeled_files[i], 'w') as outfile:
                 json.dump(p, outfile)
             labels.append(p['label'])
             continue
@@ -289,7 +290,7 @@ for file in files:
                     p['label'] = 'no2'
                     break
             if p['label'] == 'no2':
-                with open(file, 'w') as outfile:
+                with open(labeled_files[i], 'w') as outfile:
                     json.dump(p, outfile)
                 labels.append(p['label'])
                 continue
@@ -298,7 +299,7 @@ for file in files:
                     if isindict_part(w, project['project_details']):
                         p['label'] = 'no2'
                         break
-                with open(file, 'w') as outfile:
+                with open(labeled_files[i], 'w') as outfile:
                     json.dump(p, outfile)
                 labels.append(p['label'])
                 continue
@@ -313,7 +314,7 @@ for file in files:
             if delegation_criteria(cpv_list,sec3): # check the criteria for 'delegation'
                 p['label'] = 'yes1'
         if p['label'] == 'yes1':
-            with open(file, 'w') as outfile:
+            with open(labeled_files[i], 'w') as outfile:
                 json.dump(p, outfile)
             labels.append(p['label'])            
             continue
@@ -323,7 +324,7 @@ for file in files:
                     p['label'] = 'no2'
                     break
             if p['label'] == 'no2':
-                with open(file, 'w') as outfile:
+                with open(labeled_files[i], 'w') as outfile:
                     json.dump(p, outfile)
                 labels.append(p['label'])            
                 continue
@@ -332,7 +333,7 @@ for file in files:
                     if isindict_part(w, project['project_details']):
                         p['label'] = 'no2'
                         break
-                with open(file, 'w') as outfile:
+                with open(labeled_files[i], 'w') as outfile:
                     json.dump(p, outfile)
                 labels.append(p['label'])
                 continue
@@ -349,7 +350,7 @@ for file in files:
             if delegation_criteria(cpv_list,sec3): # check the criteria for 'delegation'
                 p['label'] = 'yes1'
         if p['label'] == 'yes1':
-            with open(file, 'w') as outfile:
+            with open(labeled_files[i], 'w') as outfile:
                 json.dump(p, outfile)
             labels.append(p['label'])
             continue
@@ -359,7 +360,7 @@ for file in files:
                     p['label'] = 'no2'
                     break
             if p['label'] == 'no2':
-                with open(file, 'w') as outfile:
+                with open(labeled_files[i], 'w') as outfile:
                     json.dump(p, outfile)
                 labels.append(p['label'])
                 continue
@@ -368,13 +369,13 @@ for file in files:
                     if isindict_part(w, project['project_details']):
                         p['label'] = 'no2'
                         break
-                with open(file, 'w') as outfile:
+                with open(labeled_files[i], 'w') as outfile:
                     json.dump(p, outfile)
                 labels.append(p['label'])
                 continue
     else:
         p['label'] = 'no1'
-    with open(file, 'w') as outfile:
+    with open(labeled_files[i], 'w') as outfile:
         json.dump(p, outfile)
     labels.append(p['label'])
     continue
@@ -389,11 +390,11 @@ for file in files:
 
 '''
 
-### sum up the multiple labels ('label') into two different labels only ('final_label') 
+### sum up the multiple labels ('label') into two different labels ('final_label') only
 ### and save the final label into single project file
 ### as well as save all the labeled projects together into a single csv file
 labeled_projects= []
-for file in files:
+for file in labeled_files:
     # read file
     with open(file, 'r') as f:
         data=f.read()
@@ -411,7 +412,7 @@ for file in files:
 
 # Convert all labeled projects into dataframe and save it into single csv file
 df = pd.DataFrame(labeled_projects)
-df.to_csv('./input/labeled_projects.csv', sep='\t', encoding = 'utf-8')
+df.to_csv('./data/labeled_projects.csv', sep='\t', encoding = 'utf-8')
 
 
 
