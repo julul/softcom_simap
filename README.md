@@ -4,4 +4,4 @@ With Bert, Fasttext, Logistic Regression, Linear SVC, Random Forest, and Multino
 
 # usage
 
-'python tfidf_models.py <sklearnclassifier> <metric>'
+`python tfidf_models.py <sklearnclassifier> <metric>`
