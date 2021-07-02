@@ -77,6 +77,7 @@ from sklearn.metrics import confusion_matrix
 from imblearn.metrics import geometric_mean_score
 from sklearn.metrics import classification_report
 from sklearn.utils.extmath import softmax
+import sys
 
 ################# definitions
 def get_best_combination_name(results_object):
@@ -668,12 +669,12 @@ param_grid_classification= {"loss": loss,"epoch":epoch, "lr":lr, "wordNgrams":wo
 ################### load and prepare some DATA ########################################################################################
 
 # load cleaned labeled data
-df_raw = pd.read_csv('./data/cleaned_labeled_projects.csv',sep='\t', encoding = 'utf-8')
+df_raw = pd.read_csv('../data/cleaned_labeled_projects.csv',sep='\t', encoding = 'utf-8')
 # Create a new dataframe
 df = df_raw[['final_label', 'project_details','CPV','project_title']].copy()
 
 # load language indicies
-file = open('./data/lang_indicies.json','r',encoding='utf8')
+file = open('../data/lang_indicies.json','r',encoding='utf8')
 lang_indicies = json.load(file)
 file.close()
 
