@@ -4,4 +4,9 @@ With Bert, Fasttext, Logistic Regression, Linear SVC, Random Forest, and Multino
 
 # usage
 
-`python tfidf_models.py <sklearnclassifier> <metric>`
+`python tfidf_models.py <classifier> <metric>`
+
+# arguments
+`<classifier>`: available text classifier. Choose among `LogisticRegression`, `RandomForestClassifier`, `MultinomialNB`, `LinearSVC`.
+
+
