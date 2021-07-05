@@ -8,7 +8,7 @@ With Bert, Fasttext, Logistic Regression, Linear SVC, Random Forest, and Multino
 
 # arguments
 -`<runmode>`: Run mode. Choose `'fold1'` for the hyperparameters fine-tuning step or choose `'fold2'` for the multilingual-related step.
-Runmode `'fold1'` can take time; On unix shell press `Ctrl + z` to pause the process and press `fg` to continue the process. To stop the process press `Ctrl + c`, or `Ctrl + d` or `Ctrl + \`. The both modes' results of a specific model will be saved in the same file `'../results/model_TFIDF_<classifier>_<metric>'`. 
+Runmode `'fold1'` can take time; On unix shell press `Ctrl + z` to pause the process and press `fg` to continue the process. To stop the process press `Ctrl + c`, or `Ctrl + d` or `Ctrl + \`. The modes' results of a specific model will be saved in the same file `'../results/model_TFIDF_<classifier>_<metric>'/results_#`. 
 
 -`<classifier>`: Available text classifier. Choose among `'LogisticRegression'`, `'RandomForestClassifier'`, `'MultinomialNB'`, `'LinearSVC'`.
 
