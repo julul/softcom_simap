@@ -66,7 +66,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 import random
 from langdetect import detect
 from glob import iglob
-from os import path
+from os import error, path
 from filelock import FileLock
 from sklearn.metrics import classification_report
 from numpy import argmax
@@ -87,6 +87,29 @@ from sklearn.metrics import classification_report
 from sklearn.utils.extmath import softmax
 import sys
 
+################# excpetions
+class Error(Exception):
+    # Base class for other exceptions    
+    pass
+
+class NotuningError(Error):
+    # Raised when choosing 'fold1results' runmode even though there was no tuning process at all.
+    pass
+
+class RunmodeError(Error):
+    # Raised when runmode is not entered correctly
+    pass
+
+class ClassifierError(Error):
+    # Raised when classifier is not entered correctly
+    pass
+
+class MetricError(Error):
+    # Raised when metric is not entered correctly
+    pass
+
+
+
 ################# definitions
 
 def get_best_combination_name(results_object):
@@ -104,8 +127,9 @@ def get_best_combination_name(results_object):
     return best_comb_name
 
 def adapt_resultspath(pth, pos=0):
-    # pos=0 to access most recent already existing results file
-    # pos=1 to create and access new results file
+    # pos=0 to access most recent already existing file. 
+    # pos=1 to create and access new file
+    # If no file exists, create and return first file path (/results_0).
     num = 0
     model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
     results_path = model_path(num)
@@ -205,10 +229,10 @@ def get_predictions(threshold, prediction_scores):
         and return the resulting label predictions
     """
     predictions = []
-    for score in prediction_scores:
-        if score >= threshold:
+    for s in prediction_scores:
+        if s >= threshold:
             predictions.append(1)
-        elif score < threshold:
+        elif s < threshold:
             predictions.append(0)
     return predictions
 
@@ -632,57 +656,118 @@ file = open('../data/lang_indicies.json','r',encoding='utf8')
 lang_indicies = json.load(file)
 file.close()
 
-######################################### ***** ADAPT THIS PART ***** ####################################################
+######################################### ***** SET USER INPUT ARGUMENTS ***** ####################################################
 #### test for one particular sklearn classification algo
-# choose classifier
-param_grid_classification = param_grid_lsvc # choose among param_grid_lg, param_grid_rf, param_grid_mnb, param_grid_lsvc
-classifier = LinearSVC  # choose respectively among LogisticRegression, RandomForestClassifier, MultinomialNB, LinearSVC 
-pth = "./models/model_TFIDF_LinearSVC/model_1/" # adapt accordingly among LogisticRegression, RandomForestClassifier, MultinomialNB, LinearSVC resp.
-score = "auprc" # choose among 'auprc', 'auc', 'f1', 'accuracy', 'precision', 'recall' etc. check get_results to see all metrics
+# get user input arguments 
+
+classifiers = ['LogisticRegression', 'RandomForestClassifier', 'MultinomialNB', 'LinearSVC']
+try:
+    classifierarg = sys.argv[2]
+except:
+    print("You failed to enter correctly the classifier argument\n")
+
+try:
+    if classifierarg not in classifiers:
+        raise ClassifierError
+except ClassifierError:
+    print("You failed to enter correctly an available classifier argument\n")
+
+if classifierarg == 'LogisticRegression':
+    param_grid_classification = param_grid_lg
+    classifier = LogisticRegression
+elif classifierarg == 'RandomForestClassifier':
+    param_grid_classification = param_grid_rf
+    classifier = RandomForestClassifier
+elif classifierarg == 'MultinomialNB':
+    param_grid_classification = param_grid_mnb
+    classifier = MultinomialNB
+elif classifierarg == 'LinearSVC':
+    param_grid_classification = param_grid_lsvc 
+    classifier = LinearSVC   
+
+
+
+scores = ['accuracy_prc','precision_prc', 'recall_prc', 'f1_prc', 'gmean_prc', 'accuracy_roc', 'precision_roc', 'recall_roc', 'f1_roc', 'gmean_roc', 'auc', 'auprc']
+
+try:
+    metricarg = sys.arg[3]
+except:
+    print("You failed to enter the metric argument correctly\n")
+
+try:
+    if metricarg not in scores:
+        raise MetricError
+except MetricError:
+    print("You failed to enter correctly an available metric argument\n")
+
+score = metricarg # choose among 'auprc', 'auc', 'f1', 'accuracy', 'precision', 'recall' etc. check get_results to see all metrics
+
+pth = "../results/model_TFIDF_" + classifierarg + "_" + metricarg + "/" # adapt accordingly among LogisticRegression, RandomForestClassifier, MultinomialNB, LinearSVC resp.
+
+
 ################################################# ***** RUN THIS PART ***** ###############################################
 ###### CREATE NEW RESULTS FILE ######
 # prepare framework for saving results
-results_object={}
-results_object['tune_param_representation'] = param_grid_tfidf
-results_object['tune_param_classification'] = param_grid_classification
-results_object['score'] = score
-results_path = adapt_resultspath(pth, pos=1)
 
-with io.open(results_path,'w+',encoding='utf8') as file:
-    json.dump(results_object, file) 
+runmodeargs = ['fold1', 'fold2']
 
-# get best parameter values along with the results 
+try:
+    runmodearg = sys.arg[1]
+except:
+    print("You failed to enter the runmode argument correctly\n")
+try:
+    if runmodearg not in runmodeargs:
+        raise RunmodeError
+except RunmodeError:
+    print("You failed to enter correctly an available runmode argument\n")
+
+
+if runmodearg == 'fold1':   # fine-tuning step
+    results_object={}
+    results_object['tune_param_representation'] = param_grid_tfidf
+    results_object['tune_param_classification'] = param_grid_classification
+    results_object['score'] = score
+    ## create new file
+    results_path = adapt_resultspath(pth, pos=1)
+    with io.open(results_path,'w+',encoding='utf8') as file:
+        json.dump(results_object, file)     
+    # get best parameter values along with the results 
     '''
     training of 80% of all projects and
     evaluating of 20% of randomly chosen projects (independently of the language)
     '''
-best_params_representation, best_params_classification, best_results = get_best_combination_with_results(param_grid_tfidf, param_grid_classification, score, classifier)
+    best_params_representation, best_params_classification, best_results = get_best_combination_with_results(param_grid_tfidf, param_grid_classification, score, classifier)
 
 ###### LOAD SAVED BEST RESULTS ######
 ##### FROM MOST RECENT RESULTS FILE ####
 ## adapt results_path to the most recent saved results path
-results_path = adapt_resultspath(pth, pos=0)
 
-file = open(results_path,'r',encoding='utf8')
-results_object = json.load(file)
-file.close()
-
-best_comb_name = get_best_combination_name(results_object)
-best_params_representation = results_object[best_comb_name]["params_representation"]
-best_params_classification = results_object[best_comb_name]["params_classification"]
-best_results = results_object[best_comb_name]["results"]
-# save
-best_combination = {}
-best_combination["best_params_representation"] = best_params_representation
-best_combination["best_params_classification"] = best_params_classification
-best_combination["best_results"] =  best_results
-file = open(results_path,'r',encoding='utf8')
-results_object = json.load(file)
-file.close() 
-results_object["best_combination"] = best_combination
-file = open(results_path,'w+',encoding='utf8')
-file.write(json.dumps(results_object))
-file.close()
+if runmodearg == 'fold1results':  # fine-tuning step results
+    results_path = adapt_resultspath(pth, pos=0)
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close()
+    best_comb_name = get_best_combination_name(results_object)
+    try: 
+        if best_comb_name == "":
+            raise NotuningError
+    except NotuningError:
+        print("There was no tuning process. Run with 'fold1' runmode for a while then try again.")
+    best_params_representation = results_object[best_comb_name]["params_representation"]
+    best_params_classification = results_object[best_comb_name]["params_classification"]
+    best_results = results_object[best_comb_name]["results"]
+    # save   ## if file exists..
+    best_combination = {}
+    best_combination["best_params_representation"] = best_params_representation
+    best_combination["best_params_classification"] = best_params_classification
+    best_combination["best_results"] =  best_results
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    results_object["best_combination"] = best_combination
+    file = open(results_path,'w+',encoding='utf8')
+    file.write(json.dumps(results_object))
+    file.close()
 
 # OR: get saved best combination
 #    best_params_representation= results_object["best_combination"]["best_params_representation"]

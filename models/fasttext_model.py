@@ -284,10 +284,10 @@ def get_predictions(threshold, prediction_scores):
         and return the resulting label predictions
     """
     predictions = []
-    for score in prediction_scores:
-        if score >= threshold:
+    for s in prediction_scores:
+        if s >= threshold:
             predictions.append(1)
-        elif score < threshold:
+        elif s < threshold:
             predictions.append(0)
     return predictions
 
