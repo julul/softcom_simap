@@ -1,5 +1,5 @@
 # softcom_simap
-Compare machine learning algorithms that filter projects from simap.ch for Softcom Technologies SA.
+Compare machine learning algorithms that classify multilingual textual documents from simap.ch for Softcom Technologies SA.
 With Bert, Fasttext, Logistic Regression, Linear SVC, Random Forest, and Multinomial Naive Bayes.
 
 For each specific model we proceed in two folds: First, we fine-tune the hyperparameters of the specific model. Second, with the fine-tuned hyperparameters, we compute the classification results of the specific model based on two different language-related classification techniques. 
