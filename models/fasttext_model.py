@@ -94,21 +94,22 @@ def get_best_combination_name(results_object):
             best_comb_name = name
     return best_comb_name
 
+model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
 def adapt_resultspath(pth, pos=0):
-    # pos=0 to access most recent already existing results file
-    # pos=1 to create and access new results file
+    # pos=0 to access most recent already existing file. 
+    # pos=1 to create and access new file
+    # If no file exists, create and return first file path (/results_0).
     num = 0
-    model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
-    results_path = model_path(num)
-    if os.path.exists(results_path):
+    res_path = model_path(num)
+    if os.path.exists(res_path):
         bn_list = list(map(path.basename,iglob(pth+"*.json")))
         num_list = []
         for bn in bn_list:
             num_list.extend(int(i) for i in re.findall('\d+', bn))
         max_num = max(num_list)
         new_num = max_num + pos
-        results_path = model_path(new_num)
-    return results_path
+        res_path = model_path(new_num)
+    return res_path
 
 
 def equal(X_test,y_test):

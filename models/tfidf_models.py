@@ -85,7 +85,9 @@ from sklearn.metrics import confusion_matrix
 from imblearn.metrics import geometric_mean_score
 from sklearn.metrics import classification_report
 from sklearn.utils.extmath import softmax
-import sys
+# import sys
+import argparse
+
 
 ################# excpetions
 class Error(Exception):
@@ -93,7 +95,7 @@ class Error(Exception):
     pass
 
 class NotuningError(Error):
-    # Raised when choosing 'fold1results' runmode even though there was no tuning process at all.
+    # Raised when choosing 'fold1results' runmode even though there was no tuning process (with 'fold1') at all.
     pass
 
 class RunmodeError(Error):
@@ -106,6 +108,10 @@ class ClassifierError(Error):
 
 class MetricError(Error):
     # Raised when metric is not entered correctly
+    pass
+
+class ReferenceError(Error):
+    # Raised when reference argument refers to a non existent results file 
     pass
 
 
@@ -126,22 +132,23 @@ def get_best_combination_name(results_object):
             best_comb_name = name
     return best_comb_name
 
+
+model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
 def adapt_resultspath(pth, pos=0):
     # pos=0 to access most recent already existing file. 
     # pos=1 to create and access new file
     # If no file exists, create and return first file path (/results_0).
     num = 0
-    model_path = lambda num : pth + "results_" + str(num) + ".json" # adapt path accordingly
-    results_path = model_path(num)
-    if os.path.exists(results_path):
+    res_path = model_path(num)
+    if os.path.exists(res_path):
         bn_list = list(map(path.basename,iglob(pth+"*.json")))
         num_list = []
         for bn in bn_list:
             num_list.extend(int(i) for i in re.findall('\d+', bn))
         max_num = max(num_list)
         new_num = max_num + pos
-        results_path = model_path(new_num)
-    return results_path
+        res_path = model_path(new_num)
+    return res_path
 
 
 def equal(X_test,y_test):
@@ -536,8 +543,8 @@ def compare_lang_dependency(lang,num_runs=5,test_size=0.2):
     results_indep = get_averaged_results(best_params_representation,best_params_classification,classifier, num_runs=num_runs, train_indicies=train_indep_indicies_list, test_indicies=test_indicies_list, test_size=test_size, report= True, saveas=lang+"indep") 
     #results_indep = get_results(best_params_representation, best_params_classification,classifier,train_indicies=train_indep_indicies,test_indicies= test_indicies,test_size=test_size, report=True, curve=True, repeat=True)
     # compare results of 1st and 2nd set up
-    print("results_dep: " + str(results_dep) + "\n")
-    print("results_indep: " + str(results_indep) + "\n")
+    print('Classification results for the ' + languages[lang] + ' language based on a language-DEPENDENT classifiction methodology :\n' + str(results_dep) + '\n\n')
+    print('Classification results for the ' + languages[lang] + ' language based on a language-INDEPENDENT classifiction methodology :\n' + str(results_indep) + '\n\n')
     if results_dep[score] > results_indep[score]:
         dependency_result = 1  # dependent is better
     else:
@@ -560,10 +567,10 @@ def compare_lang_dependency(lang,num_runs=5,test_size=0.2):
 
 ################## Apply TFIDF and different sklearn classification algorithms and fine tune the parameters for better results
 '''
-We consider two main steps for better results:
-- tuning parameters for text representation (TF-IDF)
-- tuning parameters for text classification (sklearn class algos like random forest)
-The optimal classification threshold will also be applied
+    We consider two main steps for better results:
+    - tuning parameters for text representation (TF-IDF)
+    - tuning parameters for text classification (sklearn class algos like random forest)
+    The optimal classification threshold will also be applied
 '''
 ############### Tuning parameters for text REPRESENTATION TF-IDF  ##################
 '''
@@ -644,7 +651,7 @@ class_weight = ['balanced']
 param_grid_lsvc  = {'C':C, 'penalty':penalty,"class_weight":class_weight}
 
 
-####### LOAD SOME DATA ####################################################################################################
+####### LOAD AND PREPARE SOME DATA ####################################################################################################
 
 # load cleaned labeled data  
 df_raw = pd.read_csv('../data/cleaned_labeled_projects.csv',sep='\t', encoding = 'utf-8')
@@ -656,79 +663,87 @@ file = open('../data/lang_indicies.json','r',encoding='utf8')
 lang_indicies = json.load(file)
 file.close()
 
+languages = {'de': 'German','fr':'French','it':'Italian','en':'English'}
+
 ######################################### ***** SET USER INPUT ARGUMENTS ***** ####################################################
 #### test for one particular sklearn classification algo
 # get user input arguments 
 
-classifiers = ['LogisticRegression', 'RandomForestClassifier', 'MultinomialNB', 'LinearSVC']
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('runmodearg', type=str)
+parser.add_argument('classifierarg', type=str)
+parser.add_argument('metricarg', type=str)
+parser.add_argument('--reference', type=int, default= -1)
+args = parser.parse_args()
+
+
+# Runmode argument
+runmodeargs = ['fold1','fold1results', 'fold2', 'fold2results']
 try:
-    classifierarg = sys.argv[2]
-except:
-    print("You failed to enter correctly the classifier argument\n")
-
-try:
-    if classifierarg not in classifiers:
-        raise ClassifierError
-except ClassifierError:
-    print("You failed to enter correctly an available classifier argument\n")
-
-if classifierarg == 'LogisticRegression':
-    param_grid_classification = param_grid_lg
-    classifier = LogisticRegression
-elif classifierarg == 'RandomForestClassifier':
-    param_grid_classification = param_grid_rf
-    classifier = RandomForestClassifier
-elif classifierarg == 'MultinomialNB':
-    param_grid_classification = param_grid_mnb
-    classifier = MultinomialNB
-elif classifierarg == 'LinearSVC':
-    param_grid_classification = param_grid_lsvc 
-    classifier = LinearSVC   
-
-
-
-scores = ['accuracy_prc','precision_prc', 'recall_prc', 'f1_prc', 'gmean_prc', 'accuracy_roc', 'precision_roc', 'recall_roc', 'f1_roc', 'gmean_roc', 'auc', 'auprc']
-
-try:
-    metricarg = sys.arg[3]
-except:
-    print("You failed to enter the metric argument correctly\n")
-
-try:
-    if metricarg not in scores:
-        raise MetricError
-except MetricError:
-    print("You failed to enter correctly an available metric argument\n")
-
-score = metricarg # choose among 'auprc', 'auc', 'f1', 'accuracy', 'precision', 'recall' etc. check get_results to see all metrics
-
-pth = "../results/model_TFIDF_" + classifierarg + "_" + metricarg + "/" # adapt accordingly among LogisticRegression, RandomForestClassifier, MultinomialNB, LinearSVC resp.
-
-
-################################################# ***** RUN THIS PART ***** ###############################################
-###### CREATE NEW RESULTS FILE ######
-# prepare framework for saving results
-
-runmodeargs = ['fold1', 'fold2']
-
-try:
-    runmodearg = sys.arg[1]
-except:
-    print("You failed to enter the runmode argument correctly\n")
-try:
-    if runmodearg not in runmodeargs:
+    if args.runmodearg not in runmodeargs:
         raise RunmodeError
 except RunmodeError:
     print("You failed to enter correctly an available runmode argument\n")
 
+# Classifier argument
+classifiers = ['LogisticRegression', 'RandomForestClassifier', 'MultinomialNB', 'LinearSVC']
+try:
+    if args.classifierarg not in classifiers:
+        raise ClassifierError
+except ClassifierError:
+    print("You failed to enter correctly an available classifier argument\n")
+if args.classifierarg == 'LogisticRegression':
+    param_grid_classification = param_grid_lg
+    classifier = LogisticRegression
+elif args.classifierarg == 'RandomForestClassifier':
+    param_grid_classification = param_grid_rf
+    classifier = RandomForestClassifier
+elif args.classifierarg == 'MultinomialNB':
+    param_grid_classification = param_grid_mnb
+    classifier = MultinomialNB
+elif args.classifierarg == 'LinearSVC':
+    param_grid_classification = param_grid_lsvc 
+    classifier = LinearSVC     
 
-if runmodearg == 'fold1':   # fine-tuning step
+# Metric argument
+scores = ['accuracy_prc','precision_prc', 'recall_prc', 'f1_prc', 'gmean_prc', 'accuracy_roc', 'precision_roc', 'recall_roc', 'f1_roc', 'gmean_roc', 'auc', 'auprc']
+try:
+    if args.metricarg not in scores:
+        raise MetricError
+except MetricError:
+    print("You failed to enter correctly an available metric argument\n")
+score = args.metricarg # choose among 'auprc', 'auc', 'f1', 'accuracy', 'precision', 'recall' etc. check get_results to see all metrics
+
+# Set path
+pth = "../results/model_TFIDF_" + args.classifierarg + "_" + args.metricarg + "/" # adapt accordingly among LogisticRegression, RandomForestClassifier, MultinomialNB, LinearSVC resp.
+
+
+# Precise model reference
+if args.reference == -1 and args.runmodearg == 'fold1': ## -1 is default
+    ## create new results file
+    results_path = adapt_resultspath(pth, pos=1)
+elif args.reference == -1 and (args.runmodearg == 'fold1results' or args.runmodearg == 'fold2' or args.runmodearg == 'fold2results'): ## -1 is default
+    ## refer to most recently created existing results file
+    results_path = adapt_resultspath(pth, pos=0)
+else:
+    results_path = model_path(args.reference)
+try:
+    if not os.path.exists(results_path):
+        raise ReferenceError
+except ReferenceError:
+    print("You have chosen for the reference parameter a number (int) that refers to a non existent results file: " + results_path + "\n")
+    print("Choose a for the reference parameter a number (int) that refers to an existent results file.\n")
+
+
+
+################################################# ***** RUNNING PART ***** ###############################################
+if args.runmodearg == 'fold1':   # fine-tuning procedure
     results_object={}
     results_object['tune_param_representation'] = param_grid_tfidf
     results_object['tune_param_classification'] = param_grid_classification
     results_object['score'] = score
-    ## create new file
-    results_path = adapt_resultspath(pth, pos=1)
     with io.open(results_path,'w+',encoding='utf8') as file:
         json.dump(results_object, file)     
     # get best parameter values along with the results 
@@ -737,30 +752,14 @@ if runmodearg == 'fold1':   # fine-tuning step
     evaluating of 20% of randomly chosen projects (independently of the language)
     '''
     best_params_representation, best_params_classification, best_results = get_best_combination_with_results(param_grid_tfidf, param_grid_classification, score, classifier)
-
-###### LOAD SAVED BEST RESULTS ######
-##### FROM MOST RECENT RESULTS FILE ####
-## adapt results_path to the most recent saved results path
-
-if runmodearg == 'fold1results':  # fine-tuning step results
-    results_path = adapt_resultspath(pth, pos=0)
-    file = open(results_path,'r',encoding='utf8')
-    results_object = json.load(file)
-    file.close()
-    best_comb_name = get_best_combination_name(results_object)
-    try: 
-        if best_comb_name == "":
-            raise NotuningError
-    except NotuningError:
-        print("There was no tuning process. Run with 'fold1' runmode for a while then try again.")
-    best_params_representation = results_object[best_comb_name]["params_representation"]
-    best_params_classification = results_object[best_comb_name]["params_classification"]
-    best_results = results_object[best_comb_name]["results"]
-    # save   ## if file exists..
+    # run 5 times with best parameter values and take the average 
+    best_results_averaged = get_averaged_results(best_params_representation,best_params_classification,classifier) # apply best params and run num_runs times and take the average of the results as best result
+    # save the results
     best_combination = {}
     best_combination["best_params_representation"] = best_params_representation
     best_combination["best_params_classification"] = best_params_classification
     best_combination["best_results"] =  best_results
+    best_combination["best_results_averaged"] = best_results_averaged  # before "best_averaged_results"
     file = open(results_path,'r',encoding='utf8')
     results_object = json.load(file)
     file.close() 
@@ -768,183 +767,151 @@ if runmodearg == 'fold1results':  # fine-tuning step results
     file = open(results_path,'w+',encoding='utf8')
     file.write(json.dumps(results_object))
     file.close()
+    ################## OUTPUT the best results
+    print("Best representation parameter values according to " + score + ": \n")
+    for param in best_params_representation:
+        best_value = best_params_representation[param]
+        print(param + " : " + str(best_value) + "\n")    
+    print("\n")
+    print("Best classification parameter values according to " + score + ": \n")   
+    for param in best_params_classification:
+        best_value = best_params_classification[param]
+        print(param + " : " + str(best_value) + "\n")   
+    print("\n")
+    print("Averaged classification results: \n")
+    for metric in best_results_averaged:
+        result = best_results_averaged[metric]
+        print(metric + " : " + str(result) + "\n")
+elif args.runmodearg == 'fold1results':   # return best fine-tuning step results
+    # filter best results
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    try:
+        best_params_representation = results_object["best_combination"]["best_params_representation"]
+        best_params_classification = results_object["best_combination"]["best_params_classification"]
+        best_results_averaged = results_object["best_combination"]["best_results_averaged"]
+    except KeyError:
+        best_comb_name = get_best_combination_name(results_object)
+        try: 
+            if best_comb_name == "":
+                raise NotuningError
+        except NotuningError:
+            print("There was no tuning process. Run with 'fold1' runmode for a while then try again with 'fold1results'.")
+        best_params_representation = results_object[best_comb_name]["params_representation"]
+        best_params_classification = results_object[best_comb_name]["params_classification"]
+        best_results = results_object[best_comb_name]["results"]
+        # run 5 times with best parameter values and take the average 
+        best_results_averaged = get_averaged_results(best_params_representation,best_params_classification,classifier) # apply best params and run num_runs times and take the average of the results as best result
+        # save the results
+        best_combination = {}
+        best_combination["best_params_representation"] = best_params_representation
+        best_combination["best_params_classification"] = best_params_classification
+        best_combination["best_results"] =  best_results
+        best_combination["best_results_averaged"] = best_results_averaged  # before "best_averaged_results"
+        file = open(results_path,'r',encoding='utf8')
+        results_object = json.load(file)
+        file.close() 
+        results_object["best_combination"] = best_combination
+        file = open(results_path,'w+',encoding='utf8')
+        file.write(json.dumps(results_object))
+        file.close()
+################## OUTPUT the best results
+    print("Best representation parameter values according to " + score + " metric: \n")
+    for param in best_params_representation:
+        best_value = best_params_representation[param]
+        print(param + " : " + str(best_value) + "\n")    
+    print("\n")
+    print("Best classification parameter values according to " + score + " metric: \n")   
+    for param in best_params_classification:
+        best_value = best_params_classification[param]
+        print(param + " : " + str(best_value) + "\n")   
+    print("\n")
+    print("Averaged classification results: \n")
+    for metric in best_results_averaged:
+        result = best_results_averaged[metric]
+        print(metric + " : " + str(result) + "\n")
+elif args.runmodearg == 'fold2':
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    try:
+        best_params_representation = results_object["best_combination"]["best_params_representation"]
+        best_params_classification = results_object["best_combination"]["best_params_classification"]
+        best_results_averaged = results_object["best_combination"]["best_results_averaged"]
+    except KeyError:
+        best_comb_name = get_best_combination_name(results_object)
+        try: 
+            if best_comb_name == "":
+                raise NotuningError
+        except NotuningError:
+            print("There was no tuning process. Run with 'fold1' runmode for a while then try again with 'fold1results'.")
+        best_params_representation = results_object[best_comb_name]["params_representation"]
+        best_params_classification = results_object[best_comb_name]["params_classification"]
+        best_results = results_object[best_comb_name]["results"]
+        # run 5 times with best parameter values and take the average 
+        best_results_averaged = get_averaged_results(best_params_representation,best_params_classification,classifier) # apply best params and run num_runs times and take the average of the results as best result
+        # save the results
+        best_combination = {}
+        best_combination["best_params_representation"] = best_params_representation
+        best_combination["best_params_classification"] = best_params_classification
+        best_combination["best_results"] =  best_results
+        best_combination["best_results_averaged"] = best_results_averaged  # before "best_averaged_results"
+        file = open(results_path,'r',encoding='utf8')
+        results_object = json.load(file)
+        file.close() 
+        results_object["best_combination"] = best_combination
+        file = open(results_path,'w+',encoding='utf8')
+        file.write(json.dumps(results_object))
+        file.close()
+    '''
+    Compare 1st set up with 2nd set up
+    - 1st set up: train on 80% german, evaluate on 20% german
+    - 2nd set up: train on 100% italian, 100% french, 100% english, 80% german all together at once. evaluate on *the same* 20% german
+    same for italian, french and english
+    ''' 
+    ########## test language (in)dependency and save the results
+    for key in languages:
+        dep_result = compare_lang_dependency(key) # returns 1 (dependent is better) or 0 (independent is better)   
+        ## results already saved in 'compare_lang_dependency' function
+        ## OUTPUT the results
+        if dep_result == 1:
+            print('For the ' + languages[key] + ' language, the language-DEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
+        else: 
+            print('For the ' + languages[key] + ' language, the language-INDEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
+elif args.runmodearg == 'fold2results':
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close()
+    for key in languages:
+        try: 
+            results_dep = results_object[key + "_dependency_result"][key + "_dependent"]
+            results_indep = results_object[key + "_dependency_result"][key + "_independent"]
+            dep_result = results_object[key + "_dependency_result"]["dependency_result"]
+        except KeyError:
+            print("The 'fold2' process for specific model with results path " + results_path + " did not reach the end. Launch with 'fold2' again and let the process reach the end.")
+        print('Classification results for the ' + languages[key] + ' language based on a language-DEPENDENT classifiction methodology :\n' + str(results_dep) + '\n\n')
+        print('Classification results for the ' + languages[key] + ' language based on a language-INDEPENDENT classifiction methodology :\n' + str(results_indep) + '\n\n')
+        if dep_result == 1:
+            print('For the ' + languages[key] + ' language, the language-DEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
+        else: 
+            print('For the ' + languages[key] + ' language, the language-INDEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
 
+
+
+    
 # OR: get saved best combination
 #    best_params_representation= results_object["best_combination"]["best_params_representation"]
 #    best_params_classification = results_object["best_combination"]["best_params_classification"]
 #    best_results = results_object["best_combination"]["best_results"]
 
-'''
-LogistigRegression:
-best_params_representation": {"max_df": 0.9, "min_df": 0.001},
-"best_params_classification": {"C": 10.0, "penalty": "l2", "class_weight": "balanced", "solver": "liblinear"},
-"best_results": {... "auprc": 0.96776}}
-
-test manually also (these combinations don't appear in results_file yet):
-result_0 = get_results({"max_df": 0.95, "min_df": 0.001}, {"C": 10.0, "penalty": "l2", "class_weight": "balanced", "solver": "liblinear"}, classifier)
---> auprc: 0.96776
-result_1 = get_results({"max_df": 0.95, "min_df": 0.001}, {"C": 10.0, "penalty": "l1", "class_weight": "balanced", "solver": "liblinear"}, classifier)
---> auprc: 0.97118
-result_2 = get_results({"max_df": 0.90, "min_df": 0.001}, {"C": 10.0, "penalty": "l1", "class_weight": "balanced", "solver": "liblinear"}, classifier)
---> ***** auprc: 0.97125 *****
-result_3 = get_results({"max_df": 0.85, "min_df": 0.001}, {"C": 10.0, "penalty": "l1", "class_weight": "balanced", "solver": "liblinear"}, classifier)
---> auprc: 0.97118
-Do they achieve better results?
 
 
-RandomForestClassifier:
-"best_params_representation": {"max_df": 0.8, "min_df": 0.011},
-"best_params_classification": {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 2},
-"best_results": {... "auprc": 0.93832}}
-
-Comparing with best results in previous results_file:
-"best_params_representation": {"max_df": 0.95, "min_df": 0.001},
-"best_params_classification": {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 5}
-
-test manually also (these combinations (normally) don't appear in the current results_file yet):
-result_0 = get_results({"max_df": 0.95, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 5}, classifier)
---> auprc: 0.9463
-result_1 = get_results({"max_df": 0.9, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 5}, classifier)
---> auprc: 0.94218
-result_2 = get_results({"max_df": 0.85, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 5}, classifier)
---> auprc: 0.94292
-result_3 = get_results({"max_df": 0.95, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 5}, classifier)
---> auprc: 0.93703
-result_4 = get_results({"max_df": 0.9, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 5}, classifier)
---> auprc: 0.93508
-result_5 = get_results({"max_df": 0.85, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 5}, classifier)
---> auprc: 0.93652
-result_6 = get_results({"max_df": 0.95, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 2}, classifier)
---> ***** auprc: 0.94814 *****
-result_7 = get_results({"max_df": 0.9, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 2}, classifier)
---> auprc: 0.94542
-result_8 = get_results({"max_df": 0.85, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 2}, classifier)
---> auprc: 0.946
-result_9 = get_results({"max_df": 0.95, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 2}, classifier)
---> auprc: 0.9361
-result_10 = get_results({"max_df": 0.9, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 2}, classifier)
---> auprc: 0.93653
-result_11 = get_results({"max_df": 0.85, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 2}, classifier)
---> auprc: 0.93816
-result_12 = get_results({"max_df": 0.95, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 2}, classifier)
---> auprc: 0.94478
-result_13 = get_results({"max_df": 0.9, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 2}, classifier)
---> auprc: 0.94681
-result_14 = get_results({"max_df": 0.85, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 2}, classifier)
---> auprc: 0.945
-result_15 = get_results({"max_df": 0.95, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 2}, classifier)
---> auprc: 0.93623
-result_16 = get_results({"max_df": 0.9, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 2}, classifier)
---> auprc: 0.93234
-result_17 = get_results({"max_df": 0.85, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 5, "min_samples_leaf": 2}, classifier)
---> auprc: 0.93723
-result_18 = get_results({"max_df": 0.95, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 5}, classifier)
---> auprc: 0.94269
-result_19 = get_results({"max_df": 0.9, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 5}, classifier)
---> auprc: 0.94321
-result_20 = get_results({"max_df": 0.85, "min_df": 0.001}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 5}, classifier)
---> auprc: 0.9414
-result_21 = get_results({"max_df": 0.95, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 5}, classifier)
---> auprc: 0.93465
-result_22 = get_results({"max_df": 0.9, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 5}, classifier)
---> auprc: 0.93714
-result_23 = get_results({"max_df": 0.85, "min_df": 0.011}, {"n_estimators": 50, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 5}, classifier)
---> auprc: 0.93633
 
 
-MultinomialNB Classifier:
-"best_params_representation": {"max_df": 0.8, "min_df": 0.011},
-"best_params_classification": {"alpha": 0.5, "fit_prior": False},
-"best_results": {... "auprc": 0.80656}}
 
-Comparing with best results in previous results_file:
-"best_params_representation": {"max_df": 0.9, "min_df": 0.001},
-"best_params_classification": {"alpha": 0.5, "fit_prior": True},
-
-test manually also (these combinations (probably) don't appear in the current results_file yet):
-result_0 = get_results({"max_df": 0.8, "min_df": 0.011}, {"alpha": 0.5, "fit_prior": True}, classifier)
-result_1 = get_results({"max_df": 0.85, "min_df": 0.011}, {"alpha": 0.5, "fit_prior": False}, classifier)
-result_2 = get_results({"max_df": 0.9, "min_df": 0.011}, {"alpha": 0.5, "fit_prior": False}, classifier)
-result_3 = get_results({"max_df": 0.95, "min_df": 0.011}, {"alpha": 0.5, "fit_prior": False}, classifier)
-result_4 = get_results({"max_df": 0.85, "min_df": 0.001}, {"alpha": 0.5, "fit_prior": False}, classifier)
-result_5 = get_results({"max_df": 0.9, "min_df": 0.001}, {"alpha": 0.5, "fit_prior": False}, classifier)
-result_6 = get_results({"max_df": 0.95, "min_df": 0.001}, {"alpha": 0.5, "fit_prior": False}, classifier)
-result_7 = get_results({"max_df": 0.85, "min_df": 0.011}, {"alpha": 0.5, "fit_prior": True}, classifier)
-result_8 = get_results({"max_df": 0.9, "min_df": 0.011}, {"alpha": 0.5, "fit_prior": True}, classifier)
-result_9 = get_results({"max_df": 0.95, "min_df": 0.011}, {"alpha": 0.5, "fit_prior": True}, classifier)
-result_10 = get_results({"max_df": 0.85, "min_df": 0.001}, {"alpha": 0.5, "fit_prior": True}, classifier)
-result_11 = get_results({"max_df": 0.9, "min_df": 0.001}, {"alpha": 0.5, "fit_prior": True}, classifier)
-result_12 = get_results({"max_df": 0.95, "min_df": 0.001}, {"alpha": 0.5, "fit_prior": True}, classifier)
-result_13 = get_results({"max_df": 0.95, "min_df": 0.001}, {"alpha": 0.5, "fit_prior": True}, classifier)
-
-
-LinearSVC:
-"best_params_representation": {"max_df": 0.8, "min_df": 0.011},
-"best_params_classification": {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'},
-"best_results": {... "auprc": 0.95732}}
-
-Comparing with best results in previous results_file:
-max df:0.8, min df:0.011, C: 0.1, penalty: l2
-
-test manually also (these combinations (probably) don't appear in the current results_file yet):
-result_0 = get_results({"max_df": 0.8, "min_df": 0.011}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
-result_1 = get_results({"max_df": 0.95, "min_df": 0.001}, {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
-result_2 = get_results({"max_df": 0.95, "min_df": 0.001}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
-result_3 = get_results({"max_df": 0.9, "min_df": 0.001}, {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
-result_4 = get_results({"max_df": 0.9, "min_df": 0.001}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
-result_5 = get_results({"max_df": 0.85, "min_df": 0.001}, {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
-result_6 = get_results({"max_df": 0.85, "min_df": 0.001}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
-result_7 = get_results({"max_df": 0.8, "min_df": 0.001}, {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
-result_8 = get_results({"max_df": 0.8, "min_df": 0.001}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
---> *** auprc: 0.95867 ***
-result_9 = get_results({"max_df": 0.95, "min_df": 0.011}, {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
-result_10 = get_results({"max_df": 0.95, "min_df": 0.011}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
-result_11 = get_results({"max_df": 0.9, "min_df": 0.011}, {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
-result_12 = get_results({"max_df": 0.9, "min_df": 0.011}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
-result_13 = get_results({"max_df": 0.85, "min_df": 0.011}, {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
-result_14 = get_results({"max_df": 0.85, "min_df": 0.011}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
-result_15 = get_results({"max_df": 0.8, "min_df": 0.011}, {'C':100.0, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
-result_16 = get_results({"max_df": 0.8, "min_df": 0.011}, {'C':0.1, 'penalty':'l2', "class_weight": 'balanced'}, classifier)
-
-
-'''
-
-################## run 5 times with best parameter values and take the average 
-
-averaged_results = get_averaged_results(best_params_representation,best_params_classification,classifier) # apply best params and run num_runs times and take the average of the results as best result
-
-################## save best parameter values and the results 
-best_combination["best_results_averaged"] = averaged_results  # before "best_averaged_results"
-file = open(results_path,'r',encoding='utf8')
-results_object = json.load(file)
-file.close() 
-results_object["best_combination"] = best_combination
-file = open(results_path,'w+',encoding='utf8')
-file.write(json.dumps(results_object))
-file.close()
-
-################## OUTPUT the best parameter values and the results
-print("Best representation parameter values according to " + score + ": \n")
-for param in best_params_representation:
-    best_value = best_params_representation[param]
-    print(param + " : " + str(best_value) + "\n")
-
-print("\n")
-print("Best classification parameter values according to " + score + ": \n")
-
-for param in best_params_classification:
-    best_value = best_params_classification[param]
-    print(param + " : " + str(best_value) + "\n")
-
-print("\n")
-print("Final (averaged) evaluation results: \n")
-
-for metric in best_results:
-    result = best_results[metric]
-    print(metric + " : " + str(result) + "\n")
 
 ##################################### compare LANGUAGE DEPENDENCY with LANGUAGE INDEPENDENCY #######################################
-# TODO: Test also if applying TFIDF on each language separately gives better results or independently of the language
 
 '''
 Compare 1st set up with 2nd set up
@@ -954,6 +921,7 @@ same for italian, french and english
 
 '''
 
+'''
 ########## test language (in)dependency and save the results
 languages = ['de','fr','it','en']
 half = int(len(languages)/2) # 2 if len(languages) is 5
@@ -979,3 +947,4 @@ if dep_count > half:
 else:
     print("Dependency does not give better results: " + str(dep_count) + " out of " + str(len(languages)))
 
+'''
