@@ -21,5 +21,21 @@ For each specific model we proceed in two folds: First, we fine-tune the hyperpa
 
 * **`--reference=<number>`** (int, *optional*, defaults to -1): Reference to a specific model respectively results file (e.g. `'../results/model_<classifier>_<metric>/results_<number>'`). Useful for runmode `'fold1results'`, `'fold2'`, and `'fold2results'`. When launching `'fold1'`, a new specific model is created.  Set by default to -1, meaning that the process refers to the most recently created specific model. Choose a number that refers to an existing specific model (check in results directory). An error occurs if the specific model with that number doesn't exist.
 
+# arguments
 
+
+| <runmode>   | <classifier>           | <metric>       |--reference=<number> |
+| ----------  | ---------------------- |--------------- | ------------------- |
+| fold1       | LogisticRegression     | accuracy_prc   |                     |
+| fold1results| RandomForestClassifier | precision_prc. |                     |
+| fold2       | MultinomialNB          | recall_prc.    |                     |
+| fold2results| LinearSVC              | f1_prc         |                     |
+|             |                        | gmean_prc.     |                     |
+|             |                        | accuracy_roc.  |                     |
+|             |                        | precision_roc. |                     |
+|             |                        | recall_roc.    |                     |
+|             |                        | f1_roc         |                     |
+|             |                        | gmean_roc      |                     |
+|             |                        | auc            |                     |
+|             |                        | auprc          |                     |
 
