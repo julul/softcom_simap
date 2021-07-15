@@ -24,7 +24,7 @@ For each specific model we proceed in two folds: First, we fine-tune the hyperpa
 # arguments
 
 
-| <runmode>   | <classifier>           | <metric>       |--reference=<number> |
+| runmode     | classifier             | metric         |--reference= number  |
 | ----------  | ---------------------- |--------------- | ------------------- |
 | fold1       | LogisticRegression     | accuracy_prc   |                     |
 | fold1results| RandomForestClassifier | precision_prc. |                     |
