@@ -27,13 +27,13 @@ For each specific model we proceed in two folds: First, we fine-tune the hyperpa
 | runmode     | classifier             | metric         |--reference= number  |
 | ----------  | ---------------------- |--------------- | ------------------- |
 | fold1       | LogisticRegression     | accuracy_prc   |                     |
-| fold1results| RandomForestClassifier | precision_prc. |                     |
-| fold2       | MultinomialNB          | recall_prc.    |                     |
+| fold1results| RandomForestClassifier | precision_prc  |                     |
+| fold2       | MultinomialNB          | recall_prc     |                     |
 | fold2results| LinearSVC              | f1_prc         |                     |
-|             |                        | gmean_prc.     |                     |
-|             |                        | accuracy_roc.  |                     |
-|             |                        | precision_roc. |                     |
-|             |                        | recall_roc.    |                     |
+|             |                        | gmean_prc      |                     |
+|             |                        | accuracy_roc   |                     |
+|             |                        | precision_roc  |                     |
+|             |                        | recall_roc     |                     |
 |             |                        | f1_roc         |                     |
 |             |                        | gmean_roc      |                     |
 |             |                        | auc            |                     |
