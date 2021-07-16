@@ -69,13 +69,13 @@ Run first fold
 $ cd models
 $ python3 tfidf_models.py 'fold1' 'LogisticRegression'
 ```
-After a while press  `Ctrl + c`.
-Then return the best tuning results
+After a while press  `Ctrl + c`, `Ctrl + d`or `Ctrl + \` to stop the process. You can also pause with `Ctrl + z` and then continue with `fg`.
+Return the best tuning results of first fold with following command.
 
 ```
 $ python3 tfidf_models.py 'fold1results' 'LogisticRegression'
 ```
-Run second fold and let it reach its end. At the end it will output the results
+Run second fold and let it reach its end. At the end it will output the results.
 
 ```
 $ python3 tfidf_models.py 'fold2' 'LogisticRegression'
