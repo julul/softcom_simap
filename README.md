@@ -4,7 +4,7 @@ With Bert, Fasttext, Logistic Regression, Linear SVC, Random Forest, and Multino
 
 For each specific model we proceed in two folds: First, we fine-tune the hyperparameters of the specific model. Second, with the fine-tuned hyperparameters, we compute the classification results of the specific model based on two different language-related classification techniques. 
 
-## usage
+## Usage
 
 *`python tfidf_models.py <runmode> <classifier> --metric --reference`
 
