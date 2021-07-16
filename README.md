@@ -58,7 +58,8 @@ $ python3 bert_model.py <runmode> --metric --reference --hyperparameters
 
 All results will be added to results folder as follows: `results/model_<classifier>_<metric>/results_<number>`.
 At each new `fold1` execution, a new results file is created for a particular `<classifier>_<metric>` model combination.
-(Explain more what contains the results file)
+The results file contains the classification results of the whole tuning procedure (fold1), i.e. the classification results of all metrics at each tuning step. The results file explicitly presents the best tuning results along with the corresponding hyperparameter values (after launching fold1results or fold2). The results file contains the classification results of all metrics of the whole fold2 procedure as well as the final "language-related" outcome (after launching fold2).
+
 
 
 ### Execution examples
@@ -70,12 +71,12 @@ $ cd models
 $ python3 tfidf_models.py 'fold1' 'LogisticRegression'
 ```
 After a while press  `Ctrl + c`, `Ctrl + d`or `Ctrl + \` to stop the process. You can also pause with `Ctrl + z` and then continue with `fg`.
-Return the best tuning results of first fold with following command.
+Return the best tuning results of first fold along with the best hyperparameter values with following command.
 
 ```
 $ python3 tfidf_models.py 'fold1results' 'LogisticRegression'
 ```
-Run second fold and let it reach its end. At the end it will output the results.
+Run second fold with best hyperparameter values and let the process reach its end. At the end it will output the results.
 
 ```
 $ python3 tfidf_models.py 'fold2' 'LogisticRegression'
@@ -94,6 +95,21 @@ $ python3 fasttext_model.py <runmode>
 ```
 $ python3 bert_model.py <runmode> 
 ```
+
+Suppose we want to tune a model with another metric than with the default auprc metric
+```
+$ cd models
+$ python3 tfidf_models.py 'fold1' 'LogisticRegression' --metric = 'auc'
+```
+Suppose we want to output the tuning results of a specific (existing) results file.
+By default, the processes `fold1results`, `fold2` and `fold2results` point to the most current results file. The `fold1` creates a new results file.
+Suppose the model `results/model_'LogisticRegression_auprc` contains `results_0`, `results_1`, `results_2` and we want to output the best tuning results of `results_1`. Then we would run:
+
+```
+$ python3 tfidf_models.py 'fold1results' 'LogisticRegression' --reference=1
+
+```
+
 
 (show best hyperparameter values)
 (show table of classification results with best hyperparameter values)
