@@ -39,20 +39,20 @@ $ python3 bert_models.py <runmode> --metric --reference --hyperparameters
 ### Arguments
 
 
-| runmode     | classifier             | --metric=metric  | --reference= number | --hyperparameters= 
-| ----------  | ---------------------- |----------------- | ------------------- |
-| fold1       | LogisticRegression     | accuracy_prc     | -1 (default)        |
-| fold1results| RandomForestClassifier | precision_prc    |                     |
-| fold2       | MultinomialNB          | recall_prc       |                     |
-| fold2results| LinearSVC              | f1_prc           |                     |
-| runmodel    |                        | gmean_prc        |                     |
-|             |                        | accuracy_roc     |                     |
-|             |                        | precision_roc    |                     |
-|             |                        | recall_roc       |                     |
-|             |                        | f1_roc           |                     |
-|             |                        | gmean_roc        |                     |
-|             |                        | auc              |                     |
-|             |                        | auprc (default)  |                     |
+| runmode     | classifier             | --metric=metric  | --reference= number | --hyperparameters=      | 
+| ----------  | ---------------------- |----------------- | ------------------- |-----------------------  |
+| fold1       | LogisticRegression     | accuracy_prc     | -1 (default)        |                         |
+| fold1results| RandomForestClassifier | precision_prc    |                     |                         |
+| fold2       | MultinomialNB          | recall_prc       |                     |                         |
+| fold2results| LinearSVC              | f1_prc           |                     |                         |
+| runmodel    |                        | gmean_prc        |                     |                         |
+|             |                        | accuracy_roc     |                     |                         |
+|             |                        | precision_roc    |                     |                         |
+|             |                        | recall_roc       |                     |                         |
+|             |                        | f1_roc           |                     |                         |
+|             |                        | gmean_roc        |                     |                         |
+|             |                        | auc              |                     |                         |
+|             |                        | auprc (default)  |                     |                         |
 
 ### Results
 
