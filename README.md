@@ -51,11 +51,11 @@ $ python3 tfidf_models.py LinearSVC --metric --reference runmodel --penalty --C
 or for FastText
 
 ```
-$ python3 fasttext_model.py  --metric --reference runmodel --dim --minn --maxn --epoch1 --lr1 --epoch2 --lr2 --wordNgrams 
+$ python3 fasttext_model.py  --metric --reference runmodel --dimU --minnU --maxnU --epochU --lrU --epochS --lrS --wordNgramsS 
 ```
 or for Bert
 ```
-$ python3 bert_model.py --metric --reference runmodel --batchsize --lr --epoch --max_seq_length
+$ python3 bert_model.py --metric --reference runmodel --train_batch_size --learning_rate --num_train_epochs --max_seq_length
 ```
 
 
@@ -100,16 +100,61 @@ $ python3 bert_model.py --metric --reference runmodel --batchsize --lr --epoch -
 
 
 ### Fold1 and Fold2 Parameters
-* **`<runmode>`** (string, *mandatory*): Run mode. `'fold1'`, `'fold1results'`, `'fold2'`, `'fold2results'` and `'runmodel'` are supported. Choose `'fold1'` for running the hyperparameters fine-tuning step and choose `'fold1results'` for returning the model's best tuning results. Choose `'fold2'` for running the multilingual-related step and choose `'fold2results'` for returning its result. Runmode `'fold1'` can take long; On unix shell press `Ctrl + z` to pause the `'fold1'` process and press `fg` to continue the same `'fold1'` process. To stop the `'fold1'` process press `Ctrl + c`, or `Ctrl + d` or `Ctrl + \`. The results of both folds, `'fold1'` and  `'fold2'`, for a specific model will be saved in the same file `'../results/model_<classifier>_<metric>/results_<number>'`. A specific model has a unique combination of `<classifier>` `<metric>` `<number>`. The model's best tuning results will be filtered and saved when finishing process `'fold1'`, when running `'fold1results'` or when running `'fold2'`. The complete results of the multilingual step will be saved  when the `'fold2'` process is finished, therefore the `'fold2'` process should not be interrupted to avoid incomplete results. When launching `'fold1'` a new specific model is created by default, and when launching `'fold2'` by default the process refers to the most recently created model. The process of `fold2` is initialized with the fine-tuned hyperparameters from process `'fold1'` for a specific model; If however there are no tuning results for a specific model, either because `'fold1'` has not been runned at all or not long enough before, then the process of `fold2` returns and error. Errors will also occur when running `'fold1results'`, without running (or not long enough) before in `'fold1'` mode for a specific model. And, errors will occur when launching `'fold2results'` without completing the process of `'fold2'` before for a specific model. The `'runmodel'` mode executes the model five times with the hyperparameters given by the `--hyperparameters` parameter and returns the average classification results.
 
-* **`<classifier>`** (string, *mandatory*): Text classifier. `'LogisticRegression'`, `'RandomForestClassifier'`, `'MultinomialNB'`, `'LinearSVC'` are supported. Works only for executing the file `tfidf_models.py`. When executing the file `fasttext_model.py` we automatically run the FastText model and when executing the file `bert_model.py` we automatically run the Bert model
+* **`<classifier>`** (string, *mandatory* for tfidf_models.py): Text classifier. `'LogisticRegression'`, `'RandomForestClassifier'`, `'MultinomialNB'`, `'LinearSVC'` are supported. Works only for executing the file `tfidf_models.py`. When executing the file `fasttext_model.py` we automatically run the FastText model and when executing the file `bert_model.py` we automatically run the Bert model
 
 * **`--metric=<metric>`** (string, *optional*, defaults to `'auprc'`): Tuning metric. `'accuracy_prc'`, `'precision_prc'`, `'recall_prc'`, `'f1_prc'`, `'gmean_prc'`, `'accuracy_roc'`, `'precision_roc'`, `'recall_roc'`, `'f1_roc'`, `'gmean_roc'`, `'auc'`, `'auprc'` are supported. Metrics ending with `_prc` are based on the threshold with best f1-score in the pr-curve. Metrics ending with `_roc` are based on the threshold with the best gmean in roc-curve. 
 
 * **`--reference=<number>`** (int, *optional*, defaults to -1): Reference to a specific model respectively results file (e.g. `'../results/model_<classifier>_<metric>/results_<number>'`). Useful for runmode `'fold1results'`, `'fold2'`, and `'fold2results'`. When launching `'fold1'`, a new specific model is created.  Set by default to -1, meaning that the process refers to the most recently created specific model. Choose a number that refers to an existing specific model (check in results directory). An error occurs if the specific model with that number doesn't exist.
 
+* **`<runmode>`** (string, *mandatory*): Run mode. `'fold1'`, `'fold1results'`, `'fold2'`, `'fold2results'` are supported. Choose `'fold1'` for running the hyperparameters fine-tuning step and choose `'fold1results'` for returning the model's best tuning results. Choose `'fold2'` for running the multilingual-related step and choose `'fold2results'` for returning its result. Runmode `'fold1'` can take long; On unix shell press `Ctrl + z` to pause the `'fold1'` process and press `fg` to continue the same `'fold1'` process. To stop the `'fold1'` process press `Ctrl + c`, or `Ctrl + d` or `Ctrl + \`. The results of both folds, `'fold1'` and  `'fold2'`, for a specific model will be saved in the same file `'../results/model_<classifier>_<metric>/results_<number>'`. A specific model has a unique combination of `<classifier>` `<metric>` `<number>`. The model's best tuning results will be filtered and saved when finishing process `'fold1'`, when running `'fold1results'` or when running `'fold2'`. The complete results of the multilingual step will be saved  when the `'fold2'` process is finished, therefore the `'fold2'` process should not be interrupted to avoid incomplete results. When launching `'fold1'` a new specific model is created by default, and when launching `'fold2'` by default the process refers to the most recently created model. The process of `fold2` is initialized with the fine-tuned hyperparameters from process `'fold1'` for a specific model; If however there are no tuning results for a specific model, either because `'fold1'` has not been runned at all or not long enough before, then the process of `fold2` returns and error. Errors will also occur when running `'fold1results'`, without running (or not long enough) before in `'fold1'` mode for a specific model. And, errors will occur when launching `'fold2results'` without completing the process of `'fold2'` before for a specific model. The `'runmodel'` mode executes the model five times with the hyperparameters given by the `--hyperparameters` parameter and returns the average classification results.
 
+### Model Parameters
 
+* **`<classifier>`** (string, *mandatory* for tfidf_models.py): Text classifier. `'LogisticRegression'`, `'RandomForestClassifier'`, `'MultinomialNB'`, `'LinearSVC'` are supported. Works only for executing the file `tfidf_models.py`. When executing the file `fasttext_model.py` we automatically run the FastText model and when executing the file `bert_model.py` we automatically run the Bert model
+
+* **`--metric=<metric>`** (string, *optional*, defaults to `'auprc'`): Tuning metric. `'accuracy_prc'`, `'precision_prc'`, `'recall_prc'`, `'f1_prc'`, `'gmean_prc'`, `'accuracy_roc'`, `'precision_roc'`, `'recall_roc'`, `'f1_roc'`, `'gmean_roc'`, `'auc'`, `'auprc'` are supported. Metrics ending with `_prc` are based on the threshold with best f1-score in the pr-curve. Metrics ending with `_roc` are based on the threshold with the best gmean in roc-curve. 
+
+* **`--reference=<number>`** (int, *optional*, defaults to -1): Reference to a specific model respectively results file (e.g. `'../results/model_<classifier>_<metric>/results_<number>'`). Useful for runmode `'fold1results'`, `'fold2'`, and `'fold2results'`. When launching `'fold1'`, a new specific model is created.  Set by default to -1, meaning that the process refers to the most recently created specific model. Choose a number that refers to an existing specific model (check in results directory). An error occurs if the specific model with that number doesn't exist.
+
+* **`<runmode>`** (string, *mandatory*): Run mode. `'runmodel'` is supported.
+* **`[model hyperparameters]`**: Selected tuning hyperparameters for:
+  * Logistic Regression:
+    * **`--penalty`** (string, *optional*, defaults to 'l2')
+    * **`--C`** (float, *optional*, defaults to 1.0)
+    * **`--solver`** (string, *optional*, defaults to 'lbfgs')
+    check https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html for more details
+  * Random Forest:
+    * **`--n_estimators`** (int, *optional*, defaults to 100)
+    * **`--max_depth`** (int, *optional*, defaults to None)
+    * **`--min_samples_split`** (int or float, *optional*, defaults to 2)
+    * **`--min_samples_leaf`** (int or float, *optional*, defaults to 1)
+    check https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
+    for more details
+  * Multinomial Naive Bayes:
+    * **`--alpha`** (float, *optional*, defaults to 1.0)
+    * **`--fit_prior`** (bool, *optional*, defaults to True)
+    check https://scikit-learn.org/stable/modules/generated/sklearn.naive_bayes.MultinomialNB.html for more details
+  * Linear SVC:
+    * **`--penalty`** (string, *optional*, defaults to 'l2')
+    * **`--C`** (float, *optional*, defaults to 1.0)
+    check https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html for more details
+  * FastText:
+    * **`--dimU`** (int, *optional*, defaults to 100)
+    * **'--minnU'** (int, *optional*, defaults to 3)
+    * **'--maxnU'** (int, *optional*, defaults to 6)
+    * **'--epochU'** (int, *optional*, defaults to 5)
+    * **'--lrU'** (float, *optional*, defaults to 0.05)
+    * **'--epochS'** (int, *optional*, defaults to 5)
+    * **'--lrS'** (float, *optional*, defaults to 0.1)
+    * **`--wordNgramsS`** (int, *optional*, defaults to 1)
+    Parameters ending with U are for *unsupervised* training (i.e. for word embeddings) and those ending with S are for *supervised* training (i.e. for classification). Check https://fasttext.cc/docs/en/python-module.html#train_unsupervised-parameters for more details 
+  * Bert:
+    * **`--train_batch_size`** (int, *optional*, defaults to 8)
+    * **`--learning_rate`** (float, *optional*, defaults to 4e-5)
+    * **`--num_train_epochs`** (int, *optional*, defaults to 1)
+    * **`--max_seq_length`** (int, *optional*, defaults to 128)
+    Check https://simpletransformers.ai/docs/usage/#configuring-a-simple-transformers-model for more details. Notably the section *Configuring a Simple Transformers ModelPermalink*.
 
 ### Fold1 and Fold2 Results
 
