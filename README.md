@@ -141,12 +141,12 @@ $ python3 bert_model.py --metric --reference runmodel --train_batch_size --learn
     check https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html for more details
   * FastText:
     * **`--dimU`** (int, *optional*, defaults to 100)
-    * **'--minnU'** (int, *optional*, defaults to 3)
-    * **'--maxnU'** (int, *optional*, defaults to 6)
-    * **'--epochU'** (int, *optional*, defaults to 5)
-    * **'--lrU'** (float, *optional*, defaults to 0.05)
-    * **'--epochS'** (int, *optional*, defaults to 5)
-    * **'--lrS'** (float, *optional*, defaults to 0.1)
+    * **`--minnU`** (int, *optional*, defaults to 3)
+    * **`--maxnU`** (int, *optional*, defaults to 6)
+    * **`--epochU`** (int, *optional*, defaults to 5)
+    * **`--lrU`** (float, *optional*, defaults to 0.05)
+    * **`--epochS`** (int, *optional*, defaults to 5)
+    * **`--lrS`** (float, *optional*, defaults to 0.1)
     * **`--wordNgramsS`** (int, *optional*, defaults to 1)
     Parameters ending with U are for *unsupervised* training (i.e. for word embeddings) and those ending with S are for *supervised* training (i.e. for classification). Check https://fasttext.cc/docs/en/python-module.html#train_unsupervised-parameters for more details 
   * Bert:
