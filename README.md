@@ -13,16 +13,16 @@ $ cd models
 Then, either
 
 ```
-$ python3 tfidf_models.py <classifier>  --metric --reference <runmode>
+$ python3 tfidf_models.py <classifier> <runmode> --metric --reference 
 ```
 or
 
 ```
-$ python3 fasttext_model.py  --metric --reference <runmode>
+$ python3 fasttext_model.py <runmode> --metric --reference 
 ```
 or
 ```
-$ python3 bert_model.py  --metric --reference <runmode>
+$ python3 bert_model.py <runmode> --metric --reference
 ```
 
 ## Model Execution
@@ -33,68 +33,69 @@ $ cd models
 Then, either for Logistic Regression
 
 ```
-$ python3 tfidf_models.py LogisticRegression --metric --reference runmodel --penalty --C --solver 
+$ python3 tfidf_models.py LogisticRegression runmodel --penalty --C --solver --metric --reference
 ```
 or for Random Forest
 ```
-$ python3 tfidf_models.py RandomForestClassifier  --metric --reference runmodel --n_estimators --max_depth --min_samples_split --min_samples_leaf 
+$ python3 tfidf_models.py RandomForestClassifier  runmodel --n_estimators --max_depth --min_samples_split --min_samples_leaf --metric --reference
 ```
 or for Multinomial Naive Bayes
 ```
-$ python3 tfidf_models.py MultinomialNB  --metric --reference runmodel --alpha --fit_prior 
+$ python3 tfidf_models.py MultinomialNB runmodel --alpha --fit_prior --metric --reference
 ```
 or for Linear SVC
 ```
-$ python3 tfidf_models.py LinearSVC --metric --reference runmodel --penalty --C 
+$ python3 tfidf_models.py LinearSVC runmodel --penalty --C --metric --reference
 ```
 
 or for FastText
 
 ```
-$ python3 fasttext_model.py  --metric --reference runmodel --dimU --minnU --maxnU --epochU --lrU --epochS --lrS --wordNgramsS 
+$ python3 fasttext_model.py  runmodel --dimU --minnU --maxnU --epochU --lrU --epochS --lrS --wordNgramsS --metric --reference
 ```
 or for Bert
 ```
-$ python3 bert_model.py --metric --reference runmodel --train_batch_size --learning_rate --num_train_epochs --max_seq_length
+$ python3 bert_model.py  runmodel --train_batch_size --learning_rate --num_train_epochs --max_seq_length --metric --reference
 ```
 
 
 ### Fold1 and Fold2 Arguments
 
 
-| classifier             | --metric=metric  | --reference= number |  runmode     |
-| ---------------------- |----------------- | ------------------- | ------------ |
-| LogisticRegression     | accuracy_prc     | -1 (default)        | fold1        |                        
-| RandomForestClassifier | precision_prc    |                     | fold1results |                        
-| MultinomialNB          | recall_prc       |                     | fold2        |                        
-| LinearSVC              | f1_prc           |                     | fold2results |                        
-|                        | gmean_prc        |                     |              |                      
-|                        | accuracy_roc     |                     |              |           
-|                        | precision_roc    |                     |              |           
-|                        | recall_roc       |                     |              |           
-|                        | f1_roc           |                     |              |           
-|                        | gmean_roc        |                     |              |           
-|                        | auc              |                     |              |            
-|                        | auprc (default)  |                     |              |
+| classifier             |runmode       | --metric=metric  | --reference= number | 
+| ---------------------- |------------- |----------------- | ------------------- |
+| LogisticRegression     | fold1        | accuracy_prc     | -1 (default)        |                        
+| RandomForestClassifier | fold1results | precision_prc    |                     |                         
+| MultinomialNB          | fold2        | recall_prc       |                     |                         
+| LinearSVC              | fold2results | f1_prc           |                     |                        
+|                        |              | gmean_prc        |                     |                      
+|                        |              | accuracy_roc     |                     |                        
+|                        |              | precision_roc    |                     |           
+|                        |              | recall_roc       |                     |           
+|                        |              | f1_roc           |                     |           
+|                        |              | gmean_roc        |                     |           
+|                        |              | auc              |                     |            
+|                        |              | auprc (default)  |                     |
 
 
 ### Model Arguments
 
 
-| classifier             | --metric=metric  | --reference= number | runmode   | 
-| ---------------------- |----------------- | ------------------- | ----------
-| LogisticRegression     | accuracy_prc     | -1 (default)        | runmodel  |                      
-|                        | precision_prc    |                     |           |              
-|                        | recall_prc       |                     |           |              
-|                        | f1_prc           |                     |           |              
-|                        | gmean_prc        |                     |           |              
-|                        | accuracy_roc     |                     |           |              
-| RandomForestClassifier | precision_roc    |                     |           |              
-|                        | recall_roc       |                     |           |              
-|                        | f1_roc           |                     |           |              
-| MultinomialNB          | gmean_roc        |                     |           |              
-|                        | auc              |                     |           |              
-|  LinearSVC             | auprc (default)  |                     |           |
+| classifier             |runmode       | [model hyperparameters]| --metric=metric  | --reference= number | 
+| ---------------------- |------------- | ---------------------- | ---------------- | ------------------- |
+| LogisticRegression     |runmodel      |                        | accuracy_prc     | -1 (default)        |                        
+| RandomForestClassifier |              |                        | precision_prc    |                     |                         
+| MultinomialNB          |              |                        | recall_prc       |                     |                         
+| LinearSVC              |              |                        | f1_prc           |                     |                        
+|                        |              |                        | gmean_prc        |                     |                      
+|                        |              |                        | accuracy_roc     |                     |                        
+|                        |              |                        | precision_roc    |                     |           
+|                        |              |                        | recall_roc       |                     |           
+|                        |              |                        | f1_roc           |                     |           
+|                        |              |                        | gmean_roc        |                     |           
+|                        |              |                        | auc              |                     |            
+|                        |              |                        | auprc (default)  |                     |
+
 
 
 
@@ -112,10 +113,6 @@ $ python3 bert_model.py --metric --reference runmodel --train_batch_size --learn
 ### Model Parameters
 
 * **`<classifier>`** (string, *mandatory* for tfidf_models.py): Text classifier. `'LogisticRegression'`, `'RandomForestClassifier'`, `'MultinomialNB'`, `'LinearSVC'` are supported. Works only for executing the file `tfidf_models.py`. When executing the file `fasttext_model.py` we automatically run the FastText model and when executing the file `bert_model.py` we automatically run the Bert model
-
-* **`--metric=<metric>`** (string, *optional*, defaults to `'auprc'`): Tuning metric. `'accuracy_prc'`, `'precision_prc'`, `'recall_prc'`, `'f1_prc'`, `'gmean_prc'`, `'accuracy_roc'`, `'precision_roc'`, `'recall_roc'`, `'f1_roc'`, `'gmean_roc'`, `'auc'`, `'auprc'` are supported. Metrics ending with `_prc` are based on the threshold with best f1-score in the pr-curve. Metrics ending with `_roc` are based on the threshold with the best gmean in roc-curve. 
-
-* **`--reference=<number>`** (int, *optional*, defaults to -1): Reference to a specific model respectively results file (e.g. `'../results/model_<classifier>_<metric>/results_<number>'`). Useful for runmode `'fold1results'`, `'fold2'`, and `'fold2results'`. When launching `'fold1'`, a new specific model is created.  Set by default to -1, meaning that the process refers to the most recently created specific model. Choose a number that refers to an existing specific model (check in results directory). An error occurs if the specific model with that number doesn't exist.
 
 * **`<runmode>`** (string, *mandatory*): Run mode. `'runmodel'` is supported.
 * **`[model hyperparameters]`**: Selected tuning hyperparameters for:
@@ -155,6 +152,10 @@ $ python3 bert_model.py --metric --reference runmodel --train_batch_size --learn
     * **`--num_train_epochs`** (int, *optional*, defaults to 1)
     * **`--max_seq_length`** (int, *optional*, defaults to 128)
     Check https://simpletransformers.ai/docs/usage/#configuring-a-simple-transformers-model for more details. Notably the section *Configuring a Simple Transformers ModelPermalink*.
+    
+* **`--metric=<metric>`** (string, *optional*, defaults to `'auprc'`): Tuning metric. `'accuracy_prc'`, `'precision_prc'`, `'recall_prc'`, `'f1_prc'`, `'gmean_prc'`, `'accuracy_roc'`, `'precision_roc'`, `'recall_roc'`, `'f1_roc'`, `'gmean_roc'`, `'auc'`, `'auprc'` are supported. Metrics ending with `_prc` are based on the threshold with best f1-score in the pr-curve. Metrics ending with `_roc` are based on the threshold with the best gmean in roc-curve. 
+
+* **`--reference=<number>`** (int, *optional*, defaults to -1): Reference to a specific model respectively results file (e.g. `'../results/model_<classifier>_<metric>/results_<number>'`). Useful for runmode `'fold1results'`, `'fold2'`, and `'fold2results'`. When launching `'fold1'`, a new specific model is created.  Set by default to -1, meaning that the process refers to the most recently created specific model. Choose a number that refers to an existing specific model (check in results directory). An error occurs if the specific model with that number doesn't exist.
 
 ### Fold1 and Fold2 Results
 
