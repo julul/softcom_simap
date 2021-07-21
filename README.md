@@ -33,19 +33,19 @@ $ cd models
 Then, either for Logistic Regression
 
 ```
-$ python3 tfidf_models.py LogisticRegression runmodel --penalty --C --solver --metric --reference
+$ python3 tfidf_models.py LogisticRegression runmodel --min_df --max_df --penalty --C --solver --metric --reference
 ```
 or for Random Forest
 ```
-$ python3 tfidf_models.py RandomForestClassifier  runmodel --n_estimators --max_depth --min_samples_split --min_samples_leaf --metric --reference
+$ python3 tfidf_models.py RandomForestClassifier  runmodel --min_df --max_df --n_estimators --max_depth --min_samples_split --min_samples_leaf --metric --reference
 ```
 or for Multinomial Naive Bayes
 ```
-$ python3 tfidf_models.py MultinomialNB runmodel --alpha --fit_prior --metric --reference
+$ python3 tfidf_models.py MultinomialNB runmodel --min_df --max_df --alpha --fit_prior --metric --reference
 ```
 or for Linear SVC
 ```
-$ python3 tfidf_models.py LinearSVC runmodel --penalty --C --metric --reference
+$ python3 tfidf_models.py LinearSVC runmodel --min_df --max_df --penalty --C --metric --reference
 ```
 
 or for FastText
@@ -116,6 +116,11 @@ $ python3 bert_model.py  runmodel --train_batch_size --learning_rate --num_train
 
 * **`<runmode>`** (string, *mandatory*): Run mode. `'runmodel'` is supported.
 * **`[model hyperparameters]`**: Selected tuning hyperparameters for:
+  * TF-IDF:
+    * **`--max_df`** (float or int, *optional*, defaults to 1.0)
+    * **`--min_df`** (float or int, *optional*, defaults to 1)
+    check https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.TfidfVectorizer.html for more details
+ 
   * Logistic Regression:
     * **`--penalty`** (string, *optional*, defaults to 'l2')
     * **`--C`** (float, *optional*, defaults to 1.0)
