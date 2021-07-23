@@ -77,7 +77,20 @@ from sklearn.metrics import confusion_matrix
 from imblearn.metrics import geometric_mean_score
 from sklearn.metrics import classification_report
 from sklearn.utils.extmath import softmax
-import sys
+import argparse
+
+################# exceptions
+class Error(Exception):
+    # Base class for other exceptions    
+    pass
+
+class NotuningError(Error):
+    # Raised when choosing 'fold1results' runmode even though there was no tuning process (with 'fold1') at all.
+    pass
+
+class ReferenceError(Error):
+    # Raised when reference argument refers to a non existent results file 
+    pass
 
 ################# definitions
 def get_best_combination_name(results_object):
@@ -550,8 +563,7 @@ def lang_dependency_set(lang, test_size=0.2):
             train_indep_indicies.extend(lang_indicies[l])   
     return train_indep_indicies, train_dep_indicies, test_indicies  
 
-def compare_lang_dependency(lang, test_size=0.2):
-    num_runs=5   
+def compare_lang_dependency(lang,num_runs=5, test_size=0.2): 
     ### split train and test set indicies for 1st and 2nd set up
     train_indep_indicies_list = []
     train_dep_indicies_list = []
@@ -566,12 +578,14 @@ def compare_lang_dependency(lang, test_size=0.2):
     # get results on 2nd set up
     results_indep = get_averaged_results(best_params_wordembeddings,best_params_classification, num_runs=num_runs, train_indicies=train_indep_indicies_list, test_indicies=test_indicies_list, test_size=test_size, report= True, saveas=lang+"indep") 
     # compare results of 1st and 2nd set up
-    print("results_dep: " + str(results_dep) + "\n")
-    print("results_indep: " + str(results_indep) + "\n")
+    print('Classification results for the ' + languages[lang] + ' language based on a language-DEPENDENT classifiction methodology :\n' + str(results_dep) + '\n\n')
+    print('Classification results for the ' + languages[lang] + ' language based on a language-INDEPENDENT classifiction methodology :\n' + str(results_indep) + '\n\n')
     if results_dep[score] > results_indep[score]:
         dependency_result = 1  # dependent is better
+        print('For the ' + languages[lang] + ' language, the language-DEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
     else:
         dependency_result = 0  # independent is better
+        print('For the ' + languages[lang] + ' language, the language-INDEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
     ### save the results 
     lang_dependency_results = {}
     lang_dependency_results[lang + "_dependent"] = results_dep
@@ -679,6 +693,8 @@ file = open('../data/lang_indicies.json','r',encoding='utf8')
 lang_indicies = json.load(file)
 file.close()
 
+languages = {'de': 'German','fr':'French','it':'Italian','en':'English'}
+
 #### prepare data for fasttext text representation 
 ## make data compatible for fasttext 
 ## data.txt shape:
@@ -686,65 +702,260 @@ file.close()
 # __label__1 "some text..."
 # __label__0 "some text..."
 
-data_file = "./data/fasttext/data.txt"
+data_file = "../data/fasttext/data.txt"
 with io.open(data_file,'w',encoding='utf8') as f:
     for i in range(0,len(df['final_label'])):
         f.write("__label__" + str(df['final_label'][i]) + " " + df['project_details'][i] + "\n")
 
 
-######################################### ***** ADAPT THIS PART ***** ####################################################
-pth = "./models/model_FastText/model_1/"
-score = "auprc" # choose among 'auprc', 'auc', 'f1', 'accuracy', 'precision', 'recall'
-################################################# ***** RUN THIS PART ***** ###############################################
-###### CREATE NEW RESULTS FILE ######
-# prepare framework for saving results
-results_object={}
-results_object['tune_param_wordembeddings'] = param_grid_wordembeddings
-results_object['tune_param_classification'] = param_grid_classification
-results_object['score'] = score
-results_path = adapt_resultspath(pth, pos=1)
 
-with io.open(results_path,'w+',encoding='utf8') as file:
-    json.dump(results_object, file) 
+######################################### ***** SET USER INPUT ARGUMENTS ***** ####################################################
+# get and handle user input arguments 
+parser = argparse.ArgumentParser()
+parser.add_argument('runmode', type=str, choices= ['fold1','fold1results', 'fold2', 'fold2results', 'runmodel'])
+parser.add_argument('--dimU', type=int, default=100)
+parser.add_argument('--minnU', type=int, default= 3)
+parser.add_argument('--maxnU', type=int, default= 6)
+parser.add_argument('--epochU', type=int, default=5)
+parser.add_argument('--lrU', type=float, default= 0.05)
+parser.add_argument('--epochS', type=int, default=5)
+parser.add_argument('--lrS', type=float, default=0.1)
+parser.add_argument('--wordNgramsS', type=int, default=1)
+parser.add_argument('--metric', type=str, choices=['accuracy_prc','precision_prc', 'recall_prc', 'f1_prc', 'gmean_prc', 'accuracy_roc', 'precision_roc', 'recall_roc', 'f1_roc', 'gmean_roc', 'auc', 'auprc'], default='auprc', )
+parser.add_argument('--reference', type=int, default= -1)
+args = parser.parse_args()
 
-############## get best parameter values along with the results 
+if args.runmode != 'runmodel' and (args.dimU or args.minnU or args.maxnU or args.epochU or args.lrU or args.epochS or args.lrS or args.wordNgramsS):
+    parser.error('Use runmodel as runmode when using model hyperparameters')
+
+score = args.metric
+
+# Set path
+pth = "../results/model_fasttext_" + args.metric + "/" 
+
+# Precise model reference
+if args.reference == -1 and args.runmode == 'fold1': ## -1 is default
+    ## create new results file
+    results_path = adapt_resultspath(pth, pos=1)
+elif args.reference == -1 and args.runmode != 'fold1': ## -1 is default
+    ## refer to most recently created existing results file
+    results_path = adapt_resultspath(pth, pos=0)
+else:
+    results_path = model_path(args.reference)
+
+if not os.path.exists(results_path):
+        parser.error("You have chosen for the reference parameter a number (int) that refers to a non existent results file: " + results_path + "\n" + "Choose a for the reference parameter a number (int) that refers to an existent results file.\n")
+
+
+################################################# ***** RUNNING PART ***** ###############################################
+
+if args.runmode == 'fold1':   # fine-tuning procedure
+    results_object={}
+    results_object['tune_param_wordembeddings'] = param_grid_wordembeddings
+    results_object['tune_param_classification'] = param_grid_classification
+    results_object['score'] = score
+    with io.open(results_path,'w+',encoding='utf8') as file:
+        json.dump(results_object, file) 
+    # get best parameter values along with the results 
     '''
     training of 80% of all projects and
     evaluating of 20% of randomly chosen projects (independently of the language)
     '''
-#X_train, X_test, y_train, y_test, train_file = get_train_test_sets()
-best_params_wordembeddings, best_params_classification, best_results = get_best_combination_with_results(param_grid_wordembeddings, param_grid_classification, score)
+    #X_train, X_test, y_train, y_test, train_file = get_train_test_sets()
+    best_params_wordembeddings, best_params_classification, best_results = get_best_combination_with_results(param_grid_wordembeddings, param_grid_classification, score)
+    best_results_averaged = get_averaged_results(best_params_wordembeddings,best_params_classification) 
+    # save the results
+    best_combination = {}
+    best_combination["best_params_wordembeddings"] = best_params_wordembeddings
+    best_combination["best_params_classification"] = best_params_classification
+    best_combination["best_results"] =  best_results
+    best_combination["best_results_averaged"] = best_results_averaged
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    results_object["best_combination"] = best_combination
+    file = open(results_path,'w+',encoding='utf8')
+    file.write(json.dumps(results_object))
+    file.close()
+    ################## OUTPUT the best results
+    print("Best word embeddings parameter values according to " + score + ": \n")
+    for param in best_params_wordembeddings:
+        best_value = best_params_wordembeddings[param]
+        print(param + " : " + str(best_value) + "\n")
+    print("\n")
+    print("Best classification parameter values according to " + score + ": \n")
+    for param in best_params_classification:
+        best_value = best_params_classification[param]
+        print(param + " : " + str(best_value) + "\n")
+    print("\n")
+    print("Averaged classification results: \n")
+    for metric in best_results_averaged:
+        result = best_results_averaged[metric]
+        print(metric + " : " + str(result) + "\n")
+elif args.runmode == 'fold1results': # return best fine-tuning step results
+    # filter best results
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    try:
+        best_params_wordembeddings = results_object['best_combination']["params_wordembeddings"]
+        best_params_classification = results_object['best_combination']["params_classification"]
+        best_results_averaged = results_object["best_combination"]["best_results_averaged"]
+    except KeyError:
+        best_comb_name = get_best_combination_name(results_object)
+        try: 
+            if best_comb_name == "":
+                raise NotuningError
+        except NotuningError:
+            print("There was no tuning process. Run with 'fold1' runmode for a while then try again with 'fold1results'.")
+        best_params_wordembeddings = results_object[best_comb_name]["params_wordembeddings"]
+        best_params_classification = results_object[best_comb_name]["params_classification"]
+        best_results = results_object[best_comb_name]["results"]
+    # run 5 times with best parameter values and take the average 
+    best_results_averaged = get_averaged_results(best_params_wordembeddings,best_params_classification) 
+    # save the results
+    best_combination = {}
+    best_combination["best_params_wordembeddings"] = best_params_wordembeddings
+    best_combination["best_params_classification"] = best_params_classification
+    best_combination["best_results"] =  best_results
+    best_combination["best_results_averaged"] = best_results_averaged
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    results_object["best_combination"] = best_combination
+    file = open(results_path,'w+',encoding='utf8')
+    file.write(json.dumps(results_object))
+    file.close()
+    ################## OUTPUT the best results
+    print("Best word embeddings parameter values according to " + score + ": \n")
+    for param in best_params_wordembeddings:
+        best_value = best_params_wordembeddings[param]
+        print(param + " : " + str(best_value) + "\n")
+    print("\n")
+    print("Best classification parameter values according to " + score + ": \n")
+    for param in best_params_classification:
+        best_value = best_params_classification[param]
+        print(param + " : " + str(best_value) + "\n")
+    print("\n")
+    print("Averaged classification results: \n")
+    for metric in best_results_averaged:
+        result = best_results_averaged[metric]
+        print(metric + " : " + str(result) + "\n")
+elif args.runmode == 'fold2':
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    try:
+        best_params_wordembeddings = results_object['best_combination']["params_wordembeddings"]
+        best_params_classification = results_object['best_combination']["params_classification"]
+        best_results_averaged = results_object["best_combination"]["best_results_averaged"]    
+    except KeyError:
+        best_comb_name = get_best_combination_name(results_object)
+        try: 
+            if best_comb_name == "":
+                raise NotuningError
+        except NotuningError:
+            print("There was no tuning process. Run with 'fold1' runmode for a while then try again with 'fold1results'.")
+        best_params_wordembeddings = results_object[best_comb_name]["params_wordembeddings"]
+        best_params_classification = results_object[best_comb_name]["params_classification"]
+        best_results = results_object[best_comb_name]["results"]
+    # run 5 times with best parameter values and take the average 
+    best_results_averaged = get_averaged_results(best_params_wordembeddings,best_params_classification) 
+    # save the results
+    best_combination = {}
+    best_combination["best_params_wordembeddings"] = best_params_wordembeddings
+    best_combination["best_params_classification"] = best_params_classification
+    best_combination["best_results"] =  best_results
+    best_combination["best_results_averaged"] = best_results_averaged
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    results_object["best_combination"] = best_combination
+    file = open(results_path,'w+',encoding='utf8')
+    file.write(json.dumps(results_object))
+    file.close()
+    '''
+    Compare 1st set up with 2nd set up
+    - 1st set up: train on 80% german, evaluate on 20% german
+    - 2nd set up: train on 100% italian, 100% french, 100% english, 80% german all together at once. evaluate on *the same* 20% german
+    same for italian, french and english
+    ''' 
+    ########## test language (in)dependency and save the results
+    for key in languages:
+        dep_result = compare_lang_dependency(key) # returns 1 (dependent is better) or 0 (independent is better)   
+        ## results already saved in 'compare_lang_dependency' function
+        ## OUTPUT the results
+        if dep_result == 1:
+            print('For the ' + languages[key] + ' language, the language-DEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
+        else: 
+            print('For the ' + languages[key] + ' language, the language-INDEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
+elif args.runmode == 'fold2results':
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close()
+    for key in languages:
+        try: 
+            results_dep = results_object[key + "_dependency_result"][key + "_dependent"]
+            results_indep = results_object[key + "_dependency_result"][key + "_independent"]
+            dep_result = results_object[key + "_dependency_result"]["dependency_result"]
+        except KeyError:
+            print("The 'fold2' process for specific model with results path " + results_path + " did not reach the end. Launch with 'fold2' again and let the process reach the end.")
+        print('Classification results for the ' + languages[key] + ' language based on a language-DEPENDENT classifiction methodology :\n' + str(results_dep) + '\n\n')
+        print('Classification results for the ' + languages[key] + ' language based on a language-INDEPENDENT classifiction methodology :\n' + str(results_indep) + '\n\n')
+        if dep_result == 1:
+            print('For the ' + languages[key] + ' language, the language-DEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
+        else: 
+            print('For the ' + languages[key] + ' language, the language-INDEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
+elif args.runmode == 'runmodel':
+    # define user params wordembeddings
+    user_params_wordembeddings = {}
+    user_params_wordembeddings['model'] = 'skipgram'
+    user_params_wordembeddings['loss'] = 'hs'
+    user_params_wordembeddings['dim'] = args.dimU
+    user_params_wordembeddings['minn'] = args.minnU
+    user_params_wordembeddings['maxn'] = args.maxnU
+    user_params_wordembeddings['epoch'] = args.epochU
+    user_params_wordembeddings['lr'] = args.lrU
+    # define user params classification
+    user_params_classification = {} 
+    user_params_classification['loss'] = 'hs'
+    user_params_classification['epoch'] = args.epochS
+    user_params_classification['lr'] = args.lrS
+    user_params_classification['wordNgrams'] = args.wordNgramsS 
+    # run 5 times with best parameter values and take the average 
+    user_results_averaged = get_averaged_results(user_params_wordembeddings,user_params_classification) 
+    # save the results
+    user_combination = {}
+    user_combination["user_params_wordembeddings"] = user_params_wordembeddings
+    user_combination["best_params_classification"] = user_params_classification
+    user_combination["best_results_averaged"] = user_results_averaged
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    results_object["user_combination"] = user_combination
+    file = open(results_path,'w+',encoding='utf8')
+    file.write(json.dumps(results_object))
+    file.close()
+    ################## OUTPUT the user results
+    print("User word embeddings parameter values according to " + score + ": \n")
+    for param in user_params_wordembeddings:
+        user_value = user_params_wordembeddings[param]
+        print(param + " : " + str(user_value) + "\n")
+    print("\n")
+    print("User classification parameter values according to " + score + ": \n")
+    for param in user_params_classification:
+        user_value = user_params_classification[param]
+        print(param + " : " + str(user_value) + "\n")
+    print("\n")
+    print("Averaged classification results: \n")
+    for metric in user_results_averaged:
+        result = user_results_averaged[metric]
+        print(metric + " : " + str(result) + "\n")
 
-###### LOAD SAVED BEST RESULTS ######
-##### FROM MOST RECENT RESULTS FILE ####
-## adapt results_path to the most recent saved results path
-results_path = adapt_resultspath(pth, pos=0)
 
-file = open(results_path,'r',encoding='utf8')
-results_object = json.load(file)
-file.close()
 
-best_comb_name = get_best_combination_name(results_object)
-best_params_wordembeddings = results_object[best_comb_name]["params_wordembeddings"]
-best_params_classification = results_object[best_comb_name]["params_classification"]
-best_results = results_object[best_comb_name]["results"]
-# save
-best_combination = {}
-best_combination["best_params_wordembeddings"] = best_params_wordembeddings
-best_combination["best_params_classification"] = best_params_classification
-best_combination["best_results"] =  best_results
-file = open(results_path,'r',encoding='utf8')
-results_object = json.load(file)
-file.close() 
-results_object["best_combination"] = best_combination
-file = open(results_path,'w+',encoding='utf8')
-file.write(json.dumps(results_object))
-file.close()
 
-# OR: get saved best combination
-#    best_params_representation= results_object["best_combination"]["best_params_representation"]
-#    best_params_classification = results_object["best_combination"]["best_params_classification"]
-#    best_results = results_object["best_combination"]["best_results"]
+
 
 '''
 FastText:
@@ -770,12 +981,16 @@ Do they achieve better results?
 
 
 
+
+''''
+
+
 ################## run 5 times with best parameter values and take the average 
 averaged_results = get_averaged_results(best_params_wordembeddings,best_params_classification) 
 
 ################## save best parameter values and the averaged results 
 
-best_combination["best_results_averaged"] = averaged_results  # before "best_averaged_results"
+best_combination["best_results_averaged"] = best_averaged_results  # before "best_averaged_results"
 file = open(results_path,'r',encoding='utf8')
 results_object = json.load(file)
 file.close() 
@@ -803,7 +1018,6 @@ for metric in best_results:
 print("report : " + str(best_results["report"]) + "\n")
 
 ##################################### compare LANGUAGE DEPENDENCY with LANGUAGE INDEPENDENCY #######################################
-'''
 Test if performing on each language separately gives better results or independently of the language
 
 Compare 1st set up with 2nd set up
@@ -811,7 +1025,7 @@ Compare 1st set up with 2nd set up
 - 2nd set up: train on 100% italian, 100% french, 100% english, 80% german all together at once. evaluate on *the same* 20% german
 same for italian, french and english
 
-'''
+
 
 
 ########## test language (in)dependency and save the results
@@ -839,3 +1053,4 @@ if dep_count > half:
     print("Dependency gives better results: " + str(dep_count) + " out of " + str(len(languages)))
 else:
     print("Dependency does not give better results: " + str(dep_count) + " out of " + str(len(languages)))
+''''

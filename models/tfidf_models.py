@@ -7,6 +7,7 @@ See e.g. https://stats.stackexchange.com/questions/390186/is-decision-threshold-
 
 # https://stackoverflow.com/questions/28716241/controlling-the-threshold-in-logistic-regression-in-scikit-learn
 # https://towardsdatascience.com/fine-tuning-a-classifier-in-scikit-learn-66e048c21e65
+from math import degrees
 from bs4 import BeautifulSoup
 import re
 import pandas as pd
@@ -89,25 +90,13 @@ from sklearn.utils.extmath import softmax
 import argparse
 
 
-################# excpetions
+################# exceptions
 class Error(Exception):
     # Base class for other exceptions    
     pass
 
 class NotuningError(Error):
     # Raised when choosing 'fold1results' runmode even though there was no tuning process (with 'fold1') at all.
-    pass
-
-class RunmodeError(Error):
-    # Raised when runmode is not entered correctly
-    pass
-
-class ClassifierError(Error):
-    # Raised when classifier is not entered correctly
-    pass
-
-class MetricError(Error):
-    # Raised when metric is not entered correctly
     pass
 
 class ReferenceError(Error):
@@ -418,7 +407,7 @@ def get_combination_with_results(combination,all_keys, keys_representation, clas
     return [[params_representation,params_classification], results] 
 
 
-def get_best_combination_with_results(param_grid_representation, param_grid_classification, score, classifier,test_size=0.2):
+def get_best_combination_with_results(param_grid_representation, param_grid_classification, classifier,test_size=0.2):
     keys_representation = list(param_grid_representation.keys())
     values_representation = list(param_grid_representation.values())
     keys_classification = list(param_grid_classification.keys())
@@ -547,8 +536,10 @@ def compare_lang_dependency(lang,num_runs=5,test_size=0.2):
     print('Classification results for the ' + languages[lang] + ' language based on a language-INDEPENDENT classifiction methodology :\n' + str(results_indep) + '\n\n')
     if results_dep[score] > results_indep[score]:
         dependency_result = 1  # dependent is better
+        print('For the ' + languages[lang] + ' language, the language-DEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
     else:
         dependency_result = 0  # independent is better
+        print('For the ' + languages[lang] + ' language, the language-INDEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
     ### save the results 
     lang_dependency_results = {}
     lang_dependency_results[lang + "_dependent"] = results_dep
@@ -633,7 +624,7 @@ param_grid_rf = {'n_estimators':n_estimators, 'max_depth':max_depth,
 penalty = ['l1', 'l2']
 C = [float(i) for i in [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000]]
 class_weight = ['balanced']
-solver = ['liblinear', 'saga']
+solver = ['liblinear', 'saga']   
 param_grid_lg = {"C":C, "penalty":penalty, "class_weight":class_weight, 'solver':solver}
 
 
@@ -658,7 +649,7 @@ df_raw = pd.read_csv('../data/cleaned_labeled_projects.csv',sep='\t', encoding =
 # Create a new dataframe
 df = df_raw[['final_label', 'project_details','CPV','project_title']].copy()
 
-# load language indicies
+# load languages indicies
 file = open('../data/lang_indicies.json','r',encoding='utf8')
 lang_indicies = json.load(file)
 file.close()
@@ -666,80 +657,121 @@ file.close()
 languages = {'de': 'German','fr':'French','it':'Italian','en':'English'}
 
 ######################################### ***** SET USER INPUT ARGUMENTS ***** ####################################################
-#### test for one particular sklearn classification algo
-# get user input arguments 
-
-
+# get and handle user input arguments 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('runmodearg', type=str)
-parser.add_argument('classifierarg', type=str)
-parser.add_argument('metricarg', type=str)
+parser.add_argument('classifier', type=str, choices=['LogisticRegression', 'RandomForestClassifier', 'MultinomialNB', 'LinearSVC'])
+parser.add_argument('runmode', type=str, choices= ['fold1','fold1results', 'fold2', 'fold2results', 'runmodel'])
+parser.add_argument('--max_df', default=1.0)
+parser.add_argument('--min_df', default=1)
+parser.add_argument('--penalty', type=str, default='l2')
+parser.add_argument('--C', type= float, default=1.0)
+parser.add_argument('--solver', type=str, default='lbfgs')
+parser.add_argument('--n_estimators', type=int, default=100)
+parser.add_argument('--max_depth', type=int, default=None)
+parser.add_argument('--min_samples_split', default=2)
+parser.add_argument('--min_samples_leaf', default=1)
+parser.add_argument('--alpha', type=float, default=1.0)
+parser.add_argument('--fit_prior', type=bool, default=True)
+parser.add_argument('--metric', type=str, choices=['accuracy_prc','precision_prc', 'recall_prc', 'f1_prc', 'gmean_prc', 'accuracy_roc', 'precision_roc', 'recall_roc', 'f1_roc', 'gmean_roc', 'auc', 'auprc'], default='auprc', )
 parser.add_argument('--reference', type=int, default= -1)
 args = parser.parse_args()
 
+if args.max_df:
+    try:
+        if args.max_df % 1 == 0: # is int  (But possibly int64. We want int to be json compatible)
+            args.max_df = int(args.max_df)
+        elif args.max_df % 1 == 0.5: # is float  (But possibly floatt64. We want float to be json compatible)
+            args.max_df = float(args.max_df)
+        else:
+            parser.error('Type of max_df is float or int')
+    except:
+        print('Type of max_df is float or int')
 
-# Runmode argument
-runmodeargs = ['fold1','fold1results', 'fold2', 'fold2results']
-try:
-    if args.runmodearg not in runmodeargs:
-        raise RunmodeError
-except RunmodeError:
-    print("You failed to enter correctly an available runmode argument\n")
+if args.min_df:
+    try:
+        if args.min_df % 1 == 0: # is int  (But possibly int64. We want int to be json compatible)
+            args.min_df = int(args.min_df)
+        elif args.min_df % 1 == 0.5: # is float  (But possibly floatt64. We want float to be json compatible)
+            args.min_df = float(args.min_df)
+        else:
+            parser.error('Type of min_df is float or int')
+    except:
+        print('Type of min_df is float or int')
 
-# Classifier argument
-classifiers = ['LogisticRegression', 'RandomForestClassifier', 'MultinomialNB', 'LinearSVC']
-try:
-    if args.classifierarg not in classifiers:
-        raise ClassifierError
-except ClassifierError:
-    print("You failed to enter correctly an available classifier argument\n")
-if args.classifierarg == 'LogisticRegression':
+if args.min_samples_leaf:
+    try:
+        if args.min_samples_leaf % 1 == 0: # is int  (But possibly int64. We want int to be json compatible)
+            args.min_samples_leaf = int(args.min_samples_leaf)
+        elif args.min_samples_leaf % 1 == 0.5: # is float  (But possibly floatt64. We want float to be json compatible)
+            args.min_samples_leaf = float(args.min_samples_leaf)
+        else:
+            parser.error('Type of min_samples_leaf is float or int')
+    except:
+        print('Type of min_samples_leaf is float or int')
+
+if args.min_samples_split:
+    try:
+        if args.min_samples_split % 1 == 0: # is int  (But possibly int64. We want int to be json compatible)
+            args.min_samples_split = int(args.min_samples_split)
+        elif args.min_samples_split % 1 == 0.5: # is float  (But possibly floatt64. We want float to be json compatible)
+            args.min_samples_split = float(args.min_samples_split)
+        else:
+            parser.error('Type of min_samples_split is float or int')
+    except:
+        print('Type of min_samples_split is float or int')
+
+
+if args.classifier == 'LogisticRegression' and args.runmode == 'runmodel' and (args.n_estimators or args.max_depth or args.min_samples_split or args.min_samples_leaf or args.alpha or args.fit_prior):
+    parser.error('Following hyperparameters for LogisticRegression are supported: max_df, min_df, penalty, C and solver')
+if args.classifier == 'RandomForestClassifier' and args.runmode == 'runmodel' and (args.penalty or args.C or args.solver or args.alpha or args.fit_prior):
+    parser.error('Following hyperparameters for RandomForestClassifier are supported: max_df, min_df, n_estimators, max_depth, min_samples_split and  min_samples_leaf')
+if args.classifier == 'MultinomialNB' and args.runmode == 'runmodel' and (args.penalty or args.C or args.solver or args.n_estimators or args.max_depth or args.min_samples_split or args.min_samples_leaf):
+    parser.error('Following hyperparameters for MultinomialNB are supported: max_df, min_df, alpha and fit_prior')
+if args.classifier == 'LinearSVC' and args.runmode == 'runmodel' and (args.solver or args.n_estimators or args.max_depth or args.min_samples_split or args.min_samples_leaf or args.alpha or args.fit_prior):
+    parser.error('Following hyperparameters for LinearSVC are supported: max_df, min_df, penalty and C')
+
+if args.runmode != 'runmodel' and (args.max_df or args.min_df or args.penalty or args.C or args.solver or args.n_estimators or args.max_depth or args.min_samples_split or args.min_samples_leaf or args.alpha or args.fit_prior):
+    parser.error('Use runmodel as runmode when using model hyperparameters')
+
+
+if args.classifier == 'LogisticRegression':
     param_grid_classification = param_grid_lg
     classifier = LogisticRegression
-elif args.classifierarg == 'RandomForestClassifier':
+elif args.classifier == 'RandomForestClassifier':
     param_grid_classification = param_grid_rf
     classifier = RandomForestClassifier
-elif args.classifierarg == 'MultinomialNB':
+elif args.classifier == 'MultinomialNB':
     param_grid_classification = param_grid_mnb
     classifier = MultinomialNB
-elif args.classifierarg == 'LinearSVC':
+elif args.classifier == 'LinearSVC':
     param_grid_classification = param_grid_lsvc 
     classifier = LinearSVC     
 
-# Metric argument
-scores = ['accuracy_prc','precision_prc', 'recall_prc', 'f1_prc', 'gmean_prc', 'accuracy_roc', 'precision_roc', 'recall_roc', 'f1_roc', 'gmean_roc', 'auc', 'auprc']
-try:
-    if args.metricarg not in scores:
-        raise MetricError
-except MetricError:
-    print("You failed to enter correctly an available metric argument\n")
-score = args.metricarg # choose among 'auprc', 'auc', 'f1', 'accuracy', 'precision', 'recall' etc. check get_results to see all metrics
+score = args.metric
 
 # Set path
-pth = "../results/model_TFIDF_" + args.classifierarg + "_" + args.metricarg + "/" # adapt accordingly among LogisticRegression, RandomForestClassifier, MultinomialNB, LinearSVC resp.
+pth = "../results/model_" + args.classifier + "_" + args.metric + "/" # adapt accordingly among LogisticRegression, RandomForestClassifier, MultinomialNB, LinearSVC resp.
 
 
 # Precise model reference
-if args.reference == -1 and args.runmodearg == 'fold1': ## -1 is default
+if args.reference == -1 and args.runmode == 'fold1': ## -1 is default
     ## create new results file
     results_path = adapt_resultspath(pth, pos=1)
-elif args.reference == -1 and (args.runmodearg == 'fold1results' or args.runmodearg == 'fold2' or args.runmodearg == 'fold2results'): ## -1 is default
+elif args.reference == -1 and args.runmode != 'fold1': ## -1 is default
     ## refer to most recently created existing results file
     results_path = adapt_resultspath(pth, pos=0)
 else:
     results_path = model_path(args.reference)
-try:
-    if not os.path.exists(results_path):
-        raise ReferenceError
-except ReferenceError:
-    print("You have chosen for the reference parameter a number (int) that refers to a non existent results file: " + results_path + "\n")
-    print("Choose a for the reference parameter a number (int) that refers to an existent results file.\n")
+
+if not os.path.exists(results_path):
+        parser.error("You have chosen for the reference parameter a number (int) that refers to a non existent results file: " + results_path + "\n" + "Choose a for the reference parameter a number (int) that refers to an existent results file.\n")
+
 
 
 
 ################################################# ***** RUNNING PART ***** ###############################################
-if args.runmodearg == 'fold1':   # fine-tuning procedure
+if args.runmode == 'fold1':   # fine-tuning procedure
     results_object={}
     results_object['tune_param_representation'] = param_grid_tfidf
     results_object['tune_param_classification'] = param_grid_classification
@@ -751,7 +783,7 @@ if args.runmodearg == 'fold1':   # fine-tuning procedure
     training of 80% of all projects and
     evaluating of 20% of randomly chosen projects (independently of the language)
     '''
-    best_params_representation, best_params_classification, best_results = get_best_combination_with_results(param_grid_tfidf, param_grid_classification, score, classifier)
+    best_params_representation, best_params_classification, best_results = get_best_combination_with_results(param_grid_tfidf, param_grid_classification, classifier)
     # run 5 times with best parameter values and take the average 
     best_results_averaged = get_averaged_results(best_params_representation,best_params_classification,classifier) # apply best params and run num_runs times and take the average of the results as best result
     # save the results
@@ -782,7 +814,8 @@ if args.runmodearg == 'fold1':   # fine-tuning procedure
     for metric in best_results_averaged:
         result = best_results_averaged[metric]
         print(metric + " : " + str(result) + "\n")
-elif args.runmodearg == 'fold1results':   # return best fine-tuning step results
+    print("Report of a run:\n" + str(best_results["report"]) + "\n")
+elif args.runmode == 'fold1results':   # return best fine-tuning step results
     # filter best results
     file = open(results_path,'r',encoding='utf8')
     results_object = json.load(file)
@@ -801,21 +834,21 @@ elif args.runmodearg == 'fold1results':   # return best fine-tuning step results
         best_params_representation = results_object[best_comb_name]["params_representation"]
         best_params_classification = results_object[best_comb_name]["params_classification"]
         best_results = results_object[best_comb_name]["results"]
-        # run 5 times with best parameter values and take the average 
-        best_results_averaged = get_averaged_results(best_params_representation,best_params_classification,classifier) # apply best params and run num_runs times and take the average of the results as best result
-        # save the results
-        best_combination = {}
-        best_combination["best_params_representation"] = best_params_representation
-        best_combination["best_params_classification"] = best_params_classification
-        best_combination["best_results"] =  best_results
-        best_combination["best_results_averaged"] = best_results_averaged  # before "best_averaged_results"
-        file = open(results_path,'r',encoding='utf8')
-        results_object = json.load(file)
-        file.close() 
-        results_object["best_combination"] = best_combination
-        file = open(results_path,'w+',encoding='utf8')
-        file.write(json.dumps(results_object))
-        file.close()
+    # run 5 times with best parameter values and take the average 
+    best_results_averaged = get_averaged_results(best_params_representation,best_params_classification,classifier) # apply best params and run num_runs times and take the average of the results as best result
+    # save the results
+    best_combination = {}
+    best_combination["best_params_representation"] = best_params_representation
+    best_combination["best_params_classification"] = best_params_classification
+    best_combination["best_results"] =  best_results
+    best_combination["best_results_averaged"] = best_results_averaged  # before "best_averaged_results"
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    results_object["best_combination"] = best_combination
+    file = open(results_path,'w+',encoding='utf8')
+    file.write(json.dumps(results_object))
+    file.close()
 ################## OUTPUT the best results
     print("Best representation parameter values according to " + score + " metric: \n")
     for param in best_params_representation:
@@ -831,7 +864,7 @@ elif args.runmodearg == 'fold1results':   # return best fine-tuning step results
     for metric in best_results_averaged:
         result = best_results_averaged[metric]
         print(metric + " : " + str(result) + "\n")
-elif args.runmodearg == 'fold2':
+elif args.runmode == 'fold2':
     file = open(results_path,'r',encoding='utf8')
     results_object = json.load(file)
     file.close() 
@@ -849,21 +882,21 @@ elif args.runmodearg == 'fold2':
         best_params_representation = results_object[best_comb_name]["params_representation"]
         best_params_classification = results_object[best_comb_name]["params_classification"]
         best_results = results_object[best_comb_name]["results"]
-        # run 5 times with best parameter values and take the average 
-        best_results_averaged = get_averaged_results(best_params_representation,best_params_classification,classifier) # apply best params and run num_runs times and take the average of the results as best result
-        # save the results
-        best_combination = {}
-        best_combination["best_params_representation"] = best_params_representation
-        best_combination["best_params_classification"] = best_params_classification
-        best_combination["best_results"] =  best_results
-        best_combination["best_results_averaged"] = best_results_averaged  # before "best_averaged_results"
-        file = open(results_path,'r',encoding='utf8')
-        results_object = json.load(file)
-        file.close() 
-        results_object["best_combination"] = best_combination
-        file = open(results_path,'w+',encoding='utf8')
-        file.write(json.dumps(results_object))
-        file.close()
+    # run 5 times with best parameter values and take the average 
+    best_results_averaged = get_averaged_results(best_params_representation,best_params_classification,classifier) # apply best params and run num_runs times and take the average of the results as best result
+    # save the results
+    best_combination = {}
+    best_combination["best_params_representation"] = best_params_representation
+    best_combination["best_params_classification"] = best_params_classification
+    best_combination["best_results"] =  best_results
+    best_combination["best_results_averaged"] = best_results_averaged  # before "best_averaged_results"
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    results_object["best_combination"] = best_combination
+    file = open(results_path,'w+',encoding='utf8')
+    file.write(json.dumps(results_object))
+    file.close()
     '''
     Compare 1st set up with 2nd set up
     - 1st set up: train on 80% german, evaluate on 20% german
@@ -879,7 +912,7 @@ elif args.runmodearg == 'fold2':
             print('For the ' + languages[key] + ' language, the language-DEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
         else: 
             print('For the ' + languages[key] + ' language, the language-INDEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
-elif args.runmodearg == 'fold2results':
+elif args.runmode == 'fold2results':
     file = open(results_path,'r',encoding='utf8')
     results_object = json.load(file)
     file.close()
@@ -896,6 +929,43 @@ elif args.runmodearg == 'fold2results':
             print('For the ' + languages[key] + ' language, the language-DEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
         else: 
             print('For the ' + languages[key] + ' language, the language-INDEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
+elif args.runmode == 'runmodel':
+    # define user params_representation (tfidf) and params_classification
+    user_params_representation = {}
+    user_params_classification = {}
+    user_params_representation['max_df'] = args.max_df
+    user_params_representation['min_df'] = args.min_df
+    if args.classifier == 'LogisticRegression':
+        user_params_classification['penalty']= args.penalty
+        user_params_classification['C']= args.C
+        user_params_classification['solver']= args.solver
+        user_params_classification['class_weight'] = 'balanced'
+    if args.classifier == 'RandomForestClassifier':
+        user_params_classification['n_estimators']= args.n_estimators
+        user_params_classification['max_depth']= args.max_depth
+        user_params_classification['min_samples_split']= args.min_samples_split
+        user_params_classification['min_samples_leaf']= args.min_samples_leaf
+    if args.classifier == 'MultinomialNB':
+        user_params_classification['alpha']= args.alpha
+        user_params_classification['fit_prior']= args.fit_prior
+    if args.classifier == 'LinearSVC':
+        user_params_classification['penalty']= args.penalty
+        user_params_classification['C']= args.C
+        user_params_classification['class_weight'] = 'balanced'
+    # run 5 times with defined parameter values and take the average 
+    user_results_averaged = get_averaged_results(user_params_representation,user_params_classification,classifier) # apply best params and run num_runs times and take the average of the results as best result
+    # save the results
+    user_combination = {}
+    user_combination["user_params_representation"] = user_params_representation
+    user_combination["user_params_classification"] = user_params_classification
+    user_combination["user_results_averaged"] = user_results_averaged  # before "best_averaged_results"
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    results_object["user_combination"] = user_combination
+    file = open(results_path,'w+',encoding='utf8')
+    file.write(json.dumps(results_object))
+    file.close()
 
 
 

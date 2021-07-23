@@ -37,13 +37,27 @@ from sklearn.metrics import confusion_matrix
 from imblearn.metrics import geometric_mean_score
 from sklearn.metrics import classification_report
 from sklearn.utils.extmath import softmax
-import sys
+import argparse
 
 
 logging.basicConfig(level=logging.INFO)
 transformers_logger = logging.getLogger("transformers")
 transformers_logger.setLevel(logging.WARNING)
 ######################### BERT tuning without process or thread parallelisation with pool
+################# excpetions
+class Error(Exception):
+    # Base class for other exceptions    
+    pass
+
+class NotuningError(Error):
+    # Raised when choosing 'fold1results' runmode even though there was no tuning process (with 'fold1') at all.
+    pass
+
+class ReferenceError(Error):
+    # Raised when reference argument refers to a non existent results file 
+    pass
+
+
 
 ################# some definitions
 
@@ -441,12 +455,14 @@ def compare_lang_dependency(lang,num_runs=5,test_size=0.1):
     # get results on 2nd set up
     results_indep = get_averaged_results(classification_model_args, best_params,num_runs=num_runs, train_indicies=train_indep_indicies_list, test_indicies=test_indicies_list, test_size=test_size, report= True, saveas=lang+"indep")  
     # compare results of 1st and 2nd set up
-    print("results_dep: " + str(results_dep) + "\n")
-    print("results_indep: " + str(results_indep) + "\n")
+    print('Classification results for the ' + languages[lang] + ' language based on a language-DEPENDENT classifiction methodology :\n' + str(results_dep) + '\n\n')
+    print('Classification results for the ' + languages[lang] + ' language based on a language-INDEPENDENT classifiction methodology :\n' + str(results_indep) + '\n\n')
     if results_dep[score] > results_indep[score]:
         dependency_result = 1  # dependent is better
+        print('For the ' + languages[lang] + ' language, the language-DEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
     else:
         dependency_result = 0  # independent is better
+        print('For the ' + languages[lang] + ' language, the language-INDEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
     ### save the results 
     lang_dependency_results = {}
     lang_dependency_results[lang + "_dependent"] = results_dep
@@ -532,11 +548,11 @@ modelargs_tuning_grid['use_multiprocessing'] = use_multiprocessing
 
 model_type = 'distilbert'
 model_name = 'distilbert-base-multilingual-cased'
-use_cuda = False
+#use_cuda = False
 classification_model_args = {}
 classification_model_args['model_type'] = model_type
 classification_model_args['model_name'] = model_name
-classification_model_args['use_cuda'] = use_cuda
+#classification_model_args['use_cuda'] = use_cuda
 
 ################### load and prepare some DATA ########################################################################################
 # load cleaned labeled data
@@ -549,10 +565,13 @@ file = open('../data/lang_indicies.json','r',encoding='utf8')
 lang_indicies = json.load(file)
 file.close()
 
+languages = {'de': 'German','fr':'French','it':'Italian','en':'English'}
+
+'''
 ######################################### ***** ADAPT THIS PART ***** ####################################################
 pth = "./models/model_Bert/model_1/"
 score = "auprc"  # choose "auprc","auc", "recall", "precision", "accuracy", "f1" etc. depending which score the evaluation of the best combination has to be based on
-################################################# ***** RUN THIS PART ***** ###############################################
+######################################### ***** SET USER INPUT ARGUMENTS ***** ####################################################
 ###### CREATE NEW RESULTS FILE ######
 # prepare framework for saving results
 results_object={}
@@ -562,11 +581,231 @@ results_path = adapt_resultspath(pth, pos=1)
 
 with io.open(results_path,'w+',encoding='utf8') as file:
     json.dump(results_object, file) 
-############## get best parameter values along with the results 
+'''
+
+######################################### ***** SET USER INPUT ARGUMENTS ***** ####################################################
+parser = argparse.ArgumentParser()
+parser.add_argument('runmode', type=str, choices= ['fold1','fold1results', 'fold2', 'fold2results', 'runmodel'])
+parser.add_argument('--train_batch_size', type=int, default=8)
+parser.add_argument('--learning_rate', type=float, default=4e-5)
+parser.add_argument('--num_train_epochs', type=int, default=1)
+parser.add_argument('--max_seq_length', type=int, default=128)
+parser.add_argument('--metric', type=str, choices=['accuracy_prc','precision_prc', 'recall_prc', 'f1_prc', 'gmean_prc', 'accuracy_roc', 'precision_roc', 'recall_roc', 'f1_roc', 'gmean_roc', 'auc', 'auprc'], default='auprc', )
+parser.add_argument('--reference', type=int, default= -1)
+args = parser.parse_args()
+
+if args.runmode != 'runmodel' and (args.train_batch_size or args.learning_rate or args.num_train_epochs or args.max_seq_length):
+    parser.error('Use runmodel as runmode when using model hyperparameters')
+
+
+score = args.metric 
+
+# Set path
+pth = "../results/model_bert_" + args.metric + "/" 
+
+# Precise model reference
+if args.reference == -1 and args.runmodearg == 'fold1': ## -1 is default
+    ## create new results file
+    results_path = adapt_resultspath(pth, pos=1)
+elif args.reference == -1 and (args.runmodearg == 'fold1results' or args.runmodearg == 'fold2' or args.runmodearg == 'fold2results'): ## -1 is default
+    ## refer to most recently created existing results file
+    results_path = adapt_resultspath(pth, pos=0)
+else:
+    results_path = model_path(args.reference)
+
+if not os.path.exists(results_path):
+        parser.error("You have chosen for the reference parameter a number (int) that refers to a non existent results file: " + results_path + "\n" + "Choose a for the reference parameter a number (int) that refers to an existent results file.\n")
+
+'''''
+try:
+    if not os.path.exists(results_path):
+        raise ReferenceError
+except ReferenceError:
+    print("You have chosen for the reference parameter a number (int) that refers to a non existent results file: " + results_path + "\n")
+    print("Choose a for the reference parameter a number (int) that refers to an existent results file.\n")
+'''''
+################################################# ***** RUNNING PART ***** ###############################################
+
+if args.runmodearg == 'fold1':   # fine-tuning procedure
+    results_object={}
+    results_object["tune_params"] = modelargs_tuning_grid
+    results_object['score'] = score
+    with io.open(results_path,'w+',encoding='utf8') as file:
+        json.dump(results_object, file)     
+    # get best parameter values along with the results 
     '''
+    training of 80% of all projects and
+    evaluating of 20% of randomly chosen projects (independently of the language)
+    '''
+    best_params, best_results = get_best_combination_with_results(classification_model_args=classification_model_args, modelargs_tuning_grid=modelargs_tuning_grid)
+    # run 5 times with best parameter values and take the average 
+    best_results_averaged = get_averaged_results(classification_model_args, best_params)
+    # save the results
+    best_combination = {}
+    best_combination["best_params"] = best_params
+    best_combination["best_results"] =  best_results
+    best_combination["best_results_averaged"] = best_results_averaged  # before "best_averaged_results"
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    results_object["best_combination"] = best_combination
+    file = open(results_path,'w+',encoding='utf8')
+    file.write(json.dumps(results_object))
+    file.close()
+    ################## OUTPUT the best results
+    print("Best (classification) parameter values according to " + score + ": \n")
+    for param in best_params:
+        best_value = best_params[param]
+        print(param + " : " + str(best_value) + "\n")    
+    print("\n")
+    print("Averaged classification results: \n")
+    for metric in best_results_averaged:
+        result = best_results_averaged[metric]
+        print(metric + " : " + str(result) + "\n")
+elif args.runmodearg == 'fold1results':   # return best fine-tuning step results
+    # filter best results
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    try:
+        best_params = results_object["best_combination"]["best_params"]
+        best_results_averaged = results_object["best_combination"]["best_results_averaged"]
+    except KeyError:
+        best_comb_name = get_best_combination_name(results_object)
+        try: 
+            if best_comb_name == "":
+                raise NotuningError
+        except NotuningError:
+            print("There was no tuning process. Run with 'fold1' runmode for a while then try again with 'fold1results'.")
+        best_params= results_object[best_comb_name]["args_combination"]
+        best_results = results_object[best_comb_name]["results"]
+        # run 5 times with best parameter values and take the average 
+        best_results_averaged = get_averaged_results(classification_model_args, best_params)
+        # save the results
+        best_combination = {}
+        best_combination["best_params"] = best_params
+        best_combination["best_results"] =  best_results
+        best_combination["best_results_averaged"] = best_results_averaged  # before "best_averaged_results"
+        file = open(results_path,'r',encoding='utf8')
+        results_object = json.load(file)
+        file.close() 
+        results_object["best_combination"] = best_combination
+        file = open(results_path,'w+',encoding='utf8')
+        file.write(json.dumps(results_object))
+        file.close()
+    ############### OUTPUT the best results
+    print("Best (classification) parameter values according to " + score + " metric: \n")
+    for param in best_params:
+        best_value = best_params[param]
+        print(param + " : " + str(best_value) + "\n")    
+    print("\n")
+    print("Averaged classification results: \n")
+    for metric in best_results_averaged:
+        result = best_results_averaged[metric]
+        print(metric + " : " + str(result) + "\n")
+elif args.runmodearg == 'fold2':
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    try:
+        best_params = results_object["best_combination"]["best_params"]
+        best_results_averaged = results_object["best_combination"]["best_results_averaged"]
+    except KeyError:
+        best_comb_name = get_best_combination_name(results_object)
+        try: 
+            if best_comb_name == "":
+                raise NotuningError
+        except NotuningError:
+            print("There was no tuning process. Run with 'fold1' runmode for a while then try again with 'fold1results'.")
+        best_params = results_object[best_comb_name]["args_combination"]
+        best_results = results_object[best_comb_name]["results"]
+    # run 5 times with best parameter values and take the average 
+    best_results_averaged = get_averaged_results(classification_model_args, best_params) # apply best params and run num_runs times and take the average of the results as best result
+    # save the results
+    best_combination = {}
+    best_combination["best_params"] = best_params
+    best_combination["best_results"] =  best_results
+    best_combination["best_results_averaged"] = best_results_averaged  # before "best_averaged_results"
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    results_object["best_combination"] = best_combination
+    file = open(results_path,'w+',encoding='utf8')
+    file.write(json.dumps(results_object))
+    file.close()
+    '''
+    Compare 1st set up with 2nd set up
+    - 1st set up: train on 80% german, evaluate on 20% german
+    - 2nd set up: train on 100% italian, 100% french, 100% english, 80% german all together at once. evaluate on *the same* 20% german
+    same for italian, french and english
+    ''' 
+    ########## test language (in)dependency and save the results
+    for key in languages:
+        dep_result = compare_lang_dependency(key) # returns 1 (dependent is better) or 0 (independent is better)   
+        ## results already saved in 'compare_lang_dependency' function
+        ## OUTPUT the results
+        if dep_result == 1:
+            print('For the ' + languages[key] + ' language, the language-DEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
+        else: 
+            print('For the ' + languages[key] + ' language, the language-INDEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
+elif args.runmodearg == 'fold2results':
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close()
+    for key in languages:
+        try: 
+            results_dep = results_object[key + "_dependency_result"][key + "_dependent"]
+            results_indep = results_object[key + "_dependency_result"][key + "_independent"]
+            dep_result = results_object[key + "_dependency_result"]["dependency_result"]
+        except KeyError:
+            print("The 'fold2' process for specific model with results path " + results_path + " did not reach the end. Launch with 'fold2' again and let the process reach the end.")
+        print('Classification results for the ' + languages[key] + ' language based on a language-DEPENDENT classifiction methodology :\n' + str(results_dep) + '\n\n')
+        print('Classification results for the ' + languages[key] + ' language based on a language-INDEPENDENT classifiction methodology :\n' + str(results_indep) + '\n\n')
+        if dep_result == 1:
+            print('For the ' + languages[key] + ' language, the language-DEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
+        else: 
+            print('For the ' + languages[key] + ' language, the language-INDEPENDENT classification methodology achieves better classification results according to the ' + score + ' metric\n')
+elif args.runmode == 'runmodel':
+    # define user params (classification)
+    user_params = {}
+    user_params['train_batch_size'] = args.train_batch_size
+    user_params['learning_rate'] = args.learning_rate
+    user_params['num_train_epochs'] = args.num_train_epochs
+    user_params['max_seq_length'] = args.max_seq_length
+    # run 5 times with best parameter values and take the average 
+    user_results_averaged = get_averaged_results(classification_model_args, user_params) # apply user params and run num_runs times and take the average of the results as best result
+    # save the results
+    user_combination = {}
+    user_combination["user_params"] = user_params
+    user_combination["user_results_averaged"] = user_results_averaged  # before "best_averaged_results"
+    file = open(results_path,'r',encoding='utf8')
+    results_object = json.load(file)
+    file.close() 
+    results_object["user_combination"] = user_combination
+    file = open(results_path,'w+',encoding='utf8')
+    file.write(json.dumps(results_object))
+    file.close()
+    ############### OUTPUT the user results
+    print("User (classification) parameter values according to " + score + " metric: \n")
+    for param in user_params:
+        user_value = user_params[param]
+        print(param + " : " + str(user_value) + "\n")    
+    print("\n")
+    print("Averaged user classification results: \n")
+    for metric in user_results_averaged:
+        result = user_results_averaged[metric]
+        print(metric + " : " + str(result) + "\n")
+
+
+
+
+
+'''
+############## get best parameter values along with the results 
+   
     training of 90% of all projects and
     evaluating of 10% of randomly chosen projects (independently of the language)
-    '''
+  
 ## best comb from previous run/results_file
 #comb_0 = {"learning_rate": 5e-05, "train_batch_size": 32, "num_train_epochs": 4, "max_seq_length": 512, "process_count": 30, "use_multiprocessing": True, "eval_batch_size": 32, "overwrite_output_dir": True}
 #results_0 = get_results(classification_model_args,comb_0)
@@ -632,13 +871,13 @@ for metric in averaged_results:
     result = best_results[metric]
     print(metric + " : " + str(result) + "\n")
 ##################################### compare LANGUAGE DEPENDENCY with LANGUAGE INDEPENDENCY #######################################
-'''
+
 Compare 1st set up with 2nd set up
 - 1st set up: train on 90% german, evaluate on 10% german
 - 2nd set up: train on 100% italian, 100% french, 100% english, 90% german all together at once. evaluate on *the same* 10% german
 same for italian, french and english
 
-'''
+
 ########## test language (in)dependency and save the results
 languages = ['de','fr','it','en']
 half = int(len(languages)/2) # 2 if len(languages) is 5
@@ -666,3 +905,4 @@ else:
     print("Dependency does not give better results: " + str(dep_count) + " out of " + str(len(languages)))
 
 
+'''
