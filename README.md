@@ -250,10 +250,8 @@ python fasttext_model.py 'runmodel' --dimU=50 --minnU=2 --maxnU=6 --epochU=2 --l
 
 Run Bert model with best achieved hyperparameter values:
 ```
-python bert_model.py 'runmodel' --train_batch_size=32 --learning_rate=4 --num_train_epochs=4 --max_seq_length=512
-
-
-(show table of classification results with best hyperparameter values)
+python bert_model.py 'runmodel' --train_batch_size=32 --learning_rate=4 --num_train_epochs=4 --max_seq_length=5
+```
 
 
 
