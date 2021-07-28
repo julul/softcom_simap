@@ -165,10 +165,15 @@ The results file contains the classification results of the whole tuning procedu
 
 ### Fold1/ Fold2 and Model Execution examples
 
-Run first fold
+Go first to working directory
 
 ```
 $ cd models
+```
+
+Run first fold
+
+```
 $ python3 tfidf_models.py 'fold1' 'LogisticRegression'
 ```
 After a while press  `Ctrl + c`, `Ctrl + d`or `Ctrl + \` to stop the process. You can also pause with `Ctrl + z` and then continue with `fg`.
@@ -199,7 +204,6 @@ $ python3 bert_model.py <runmode>
 
 Suppose we want to tune a model with another metric than with the default auprc metric
 ```
-$ cd models
 $ python3 tfidf_models.py 'fold1' 'LogisticRegression' --metric = 'auc'
 ```
 Suppose we want to output the tuning results of a specific (existing) results file.
@@ -210,9 +214,45 @@ Suppose the model `results/model_'LogisticRegression_auprc` contains `results_0`
 $ python3 tfidf_models.py 'fold1results' 'LogisticRegression' --reference=1
 
 ```
+Run models with our fine-tuned hyperparameter values. Other hyperparameter values can achieve better classification results.
+Run Logistic Resgression model with best achieved hyperparameter values:
+```
+$ python tfidf_models.py 'LogisticRegression' 'runmodel' --max_df=0.9 --min_df=0.001 --penalty='l1' --C=10 --solver='liblinear'
+
+```
+
+Run Linear SVC model with best achieved hyperparameter values:
+
+```
+$ python tfidf_models.py 'LinearSVC' 'runmodel' --max_df=0.8 --min_df=0.01 --penalty='l2' --C=0.1
+```
 
 
-(show best hyperparameter values)
+Run Random Forest model with best achieved hyperparameter values:
+
+```
+$ python tfidf_models.py 'RandomForestClassifier' 'runmodel' --max_df=0.95 --min_df=0.001 --n_estimators=50 --max_depth=30 --min_samples_split=10 --min_samples_leaf=2
+```
+
+Run Multinomial Naive Bayes model with best achieved hyperparamater values:
+```
+$ python tfidf_models.py 'MultinomialNB' 'runmodel' --max_df=0.85 --min_df=0.001 --alpha=0.5 --fit_prior=False
+
+```
+
+
+Run FastText model with best achieved hyperparameter values:
+
+```
+
+python fasttext_model.py 'runmodel' --dimU=50 --minnU=2 --maxnU=6 --epochU=2 --lrU=0.07 --epochS=38 --lrS=0.09 --wordNgramsS=2
+```
+
+Run Bert model with best achieved hyperparameter values:
+```
+python bert_model.py 'runmodel' --train_batch_size=32 --learning_rate=4 --num_train_epochs=4 --max_seq_length=512
+
+
 (show table of classification results with best hyperparameter values)
 
 
