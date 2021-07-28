@@ -188,12 +188,10 @@ def get_train_test_sets(train_indicies=None, test_indicies=None,test_size= 0.2, 
     with io.open(train_file,'w',encoding='utf8') as f:
         for i in range(0,len(y_train)):
             f.write("__label__" + str(y_train[i]) + " " + X_train[i] + "\n")
-    
     with io.open(test_file,'w',encoding='utf8') as f:
         for i in range(0,len(y_test)):
             f.write("__label__" + str(y_test[i]) + " " + X_test[i] + "\n")
-    
-    return X_train, X_test, y_train, y_test, train_file
+    return X_train, X_test, y_train, y_test, train_file, y_train.count(1), y_train.count(0), y_test.count(1), y_test.count(0) 
 
 def find_best_prc_threshold(target, predicted):
     #https://machinelearningmastery.com/threshold-moving-for-imbalanced-classification/
@@ -318,7 +316,7 @@ def get_results(params_wordembeddings, params_classification,name=0,train_indici
             if res['params_wordembeddings'] == params_wordembeddings and res['params_classification'] == params_classification:
                 print("wordembeddings and classification parameters already exist in the current results_file\n")
                 return res['results']
-    _, X_test, _, y_test, train_file = get_train_test_sets(train_indicies, test_indicies,test_size= test_size, random_state=random_state)
+    _, X_test, _, y_test, train_file, y_train_1, y_train_0, y_test_1, y_test_0 = get_train_test_sets(train_indicies, test_indicies,test_size= test_size, random_state=random_state)
     model_name = "comb_" + str(name)
     # bin_path = "word_vectors/fasttext/" + model_name + ".bin" 
     vec_path = "word_vectors/fasttext/" + model_name + ".vec" 
@@ -370,6 +368,10 @@ def get_results(params_wordembeddings, params_classification,name=0,train_indici
     auc = metrics.roc_auc_score(y_test, y_scores)
     auprc = metrics.average_precision_score(y_test, y_scores)
     results = {}
+    results['y_train_1'] = y_train_1
+    results['y_train_0'] = y_train_0
+    results['y_test_1'] = y_test_1
+    results['y_test_0'] = y_test_0
     results['best_prc_threshold'] = 'Threshold=%.5f in precision-recall-curve with best F-Score=%.5f' % (best_prc_threshold, best_fscore)
     results['best_roc_threshold'] = 'Threshold=%.5f in fpr-tpr-curve with best G-Mean=%.5f' % (best_roc_threshold, best_gmean)
     results['accuracy_prc'] = round(float(accuracy_prc),5)

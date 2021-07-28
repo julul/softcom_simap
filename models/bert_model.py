@@ -145,7 +145,7 @@ def get_train_test_sets(train_indicies=None, test_indicies=None,test_size=0.1, r
     X_test_1, y_test_1 = equal(X_test,y_test)
     X_test = X_test_1.copy()
     y_test = y_test_1.copy()    
-    return X_train, X_test, y_train, y_test
+    return X_train, X_test, y_train, y_test, y_train.count(1), y_train.count(0), y_test.count(1), y_test.count(0)
 
 def find_best_prc_threshold(target, predicted):
     #https://machinelearningmastery.com/threshold-moving-for-imbalanced-classification/
@@ -199,7 +199,7 @@ def get_results(classification_model_args,args_combination, train_indicies = Non
                 print("tuning parameters already exist in the current results_file\n")
                 return res['results']
     print("before train test sets\n")
-    X_train, X_test, y_train, y_test = get_train_test_sets(train_indicies, test_indicies,test_size= test_size, random_state=random_state)    
+    X_train, X_test, y_train, y_test,  y_train_1, y_train_0, y_test_1, y_test_0 = get_train_test_sets(train_indicies, test_indicies,test_size= test_size, random_state=random_state)    
     # Train and Evaluation data needs to be in a Pandas Dataframe of two columns.
     # The first column is the text with type str, and the second column is the label with type int.
     train_df = pd.DataFrame([[a,b] for a,b in zip(X_train, y_train)])
@@ -263,6 +263,10 @@ def get_results(classification_model_args,args_combination, train_indicies = Non
     # or auprc = auc(recall, precision)
     # create auc = auc(fnr,tpr)
     results = {}
+    results['y_train_1'] = y_train_1
+    results['y_train_0'] = y_train_0
+    results['y_test_1'] = y_test_1
+    results['y_test_0'] = y_test_0
     results['best_prc_threshold'] = 'Threshold=%.5f in precision-recall-curve with best F-Score=%.5f' % (best_prc_threshold, best_fscore)
     results['best_roc_threshold'] = 'Threshold=%.5f in fpr-tpr-curve with best G-Mean=%.5f' % (best_roc_threshold, best_gmean)
     results['accuracy_prc'] = round(float(accuracy_prc),5)

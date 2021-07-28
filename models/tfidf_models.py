@@ -192,7 +192,7 @@ def get_train_test_sets(features,train_indicies=None, test_indicies=None,test_si
     X_test_1, y_test_1 = equal(X_test,y_test)
     X_test = X_test_1.copy()
     y_test = y_test_1.copy()
-    return X_train, X_test, y_train, y_test
+    return X_train, X_test, y_train, y_test, y_train.count(1), y_train.count(0), y_test.count(1), y_test.count(0)
 
 def find_best_prc_threshold(target, predicted):
     #https://machinelearningmastery.com/threshold-moving-for-imbalanced-classification/
@@ -266,7 +266,7 @@ def get_results(params_representation, params_classification, classifier, train_
     except ValueError:  
             print("ValueError occurred\n")
             return None
-    X_train, X_test, y_train, y_test = get_train_test_sets(features,train_indicies=train_indicies, test_indicies=test_indicies,test_size=test_size, random_state=random_state)
+    X_train, X_test, y_train, y_test, y_train_1, y_train_0, y_test_1, y_test_0 = get_train_test_sets(features,train_indicies=train_indicies, test_indicies=test_indicies,test_size=test_size, random_state=random_state)
     ### apply hyperparameter and train model
     classification_model = perform(classifier, **params_classification) # e.g. classifier == LogisticRegression
     classification_model.fit(X_train, y_train)
@@ -312,6 +312,10 @@ def get_results(params_representation, params_classification, classifier, train_
     auc = metrics.roc_auc_score(y_test, y_scores)
     auprc = metrics.average_precision_score(y_test, y_scores)
     results = {}
+    results['y_train_1'] = y_train_1
+    results['y_train_0'] = y_train_0
+    results['y_test_1'] = y_test_1
+    results['y_test_0'] = y_test_0
     results['best_prc_threshold'] = 'Threshold=%.5f in precision-recall-curve with best F-Score=%.5f' % (best_prc_threshold, best_fscore)
     results['best_roc_threshold'] = 'Threshold=%.5f in fpr-tpr-curve with best G-Mean=%.5f' % (best_roc_threshold, best_gmean)
     results['accuracy_prc'] = round(float(accuracy_prc),5)
