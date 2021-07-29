@@ -33,29 +33,29 @@ $ cd models
 Then, either for Logistic Regression
 
 ```
-$ python3 tfidf_models.py LogisticRegression runmodel --min_df --max_df --penalty --C --solver --metric --reference
+$ python3 tfidf_models.py LogisticRegression 'runmodel' --min_df --max_df --penalty --C --solver --metric --reference
 ```
 or for Random Forest
 ```
-$ python3 tfidf_models.py RandomForestClassifier  runmodel --min_df --max_df --n_estimators --max_depth --min_samples_split --min_samples_leaf --metric --reference
+$ python3 tfidf_models.py RandomForestClassifier  'runmodel' --min_df --max_df --n_estimators --max_depth --min_samples_split --min_samples_leaf --metric --reference
 ```
 or for Multinomial Naive Bayes
 ```
-$ python3 tfidf_models.py MultinomialNB runmodel --min_df --max_df --alpha --fit_prior --metric --reference
+$ python3 tfidf_models.py MultinomialNB 'runmodel' --min_df --max_df --alpha --fit_prior --metric --reference
 ```
 or for Linear SVC
 ```
-$ python3 tfidf_models.py LinearSVC runmodel --min_df --max_df --penalty --C --metric --reference
+$ python3 tfidf_models.py LinearSVC 'runmodel' --min_df --max_df --penalty --C --metric --reference
 ```
 
 or for FastText
 
 ```
-$ python3 fasttext_model.py  runmodel --dimU --minnU --maxnU --epochU --lrU --epochS --lrS --wordNgramsS --metric --reference
+$ python3 fasttext_model.py  'runmodel' --dimU --minnU --maxnU --epochU --lrU --epochS --lrS --wordNgramsS --metric --reference
 ```
 or for Bert
 ```
-$ python3 bert_model.py  runmodel --train_batch_size --learning_rate --num_train_epochs --max_seq_length --metric --reference
+$ python3 bert_model.py  'runmodel' --train_batch_size --learning_rate --num_train_epochs --max_seq_length --metric --reference
 ```
 
 
@@ -204,39 +204,39 @@ $ python3 bert_model.py <runmode>
 
 Suppose we want to tune a model with another metric than with the default auprc metric
 ```
-$ python3 tfidf_models.py 'fold1' 'LogisticRegression' --metric = 'auc'
+$ python3 tfidf_models.py 'LogisticRegression' 'fold1' --metric = 'auc'
 ```
 Suppose we want to output the tuning results of a specific (existing) results file.
 By default, the processes `fold1results`, `fold2` and `fold2results` point to the most current results file. The `fold1` creates a new results file.
 Suppose the model `results/model_'LogisticRegression_auprc` contains `results_0`, `results_1`, `results_2` and we want to output the best tuning results of `results_1`. Then we would run:
 
 ```
-$ python3 tfidf_models.py 'fold1results' 'LogisticRegression' --reference=1
+$ python3 tfidf_models.py 'LogisticRegression' 'fold1results' --reference=1
 
 ```
 Run models with our fine-tuned hyperparameter values. Other hyperparameter values can achieve better classification results.
 Run Logistic Resgression model with best achieved hyperparameter values:
 ```
-$ python tfidf_models.py 'LogisticRegression' 'runmodel' --max_df=0.9 --min_df=0.001 --penalty='l1' --C=10 --solver='liblinear'
+$ python3 tfidf_models.py 'LogisticRegression' 'runmodel' --max_df=0.9 --min_df=0.001 --penalty='l1' --C=10 --solver='liblinear'
 
 ```
 
 Run Linear SVC model with best achieved hyperparameter values:
 
 ```
-$ python tfidf_models.py 'LinearSVC' 'runmodel' --max_df=0.8 --min_df=0.01 --penalty='l2' --C=0.1
+$ python3 tfidf_models.py 'LinearSVC' 'runmodel' --max_df=0.8 --min_df=0.01 --penalty='l2' --C=0.1
 ```
 
 
 Run Random Forest model with best achieved hyperparameter values:
 
 ```
-$ python tfidf_models.py 'RandomForestClassifier' 'runmodel' --max_df=0.95 --min_df=0.001 --n_estimators=50 --max_depth=30 --min_samples_split=10 --min_samples_leaf=2
+$ python3 tfidf_models.py 'RandomForestClassifier' 'runmodel' --max_df=0.95 --min_df=0.001 --n_estimators=50 --max_depth=30 --min_samples_split=10 --min_samples_leaf=2
 ```
 
 Run Multinomial Naive Bayes model with best achieved hyperparamater values:
 ```
-$ python tfidf_models.py 'MultinomialNB' 'runmodel' --max_df=0.85 --min_df=0.001 --alpha=0.5 --fit_prior=False
+$ python3 tfidf_models.py 'MultinomialNB' 'runmodel' --max_df=0.85 --min_df=0.001 --alpha=0.5 --fit_prior=False
 
 ```
 
@@ -245,12 +245,12 @@ Run FastText model with best achieved hyperparameter values:
 
 ```
 
-python fasttext_model.py 'runmodel' --dimU=50 --minnU=2 --maxnU=6 --epochU=2 --lrU=0.07 --epochS=38 --lrS=0.09 --wordNgramsS=2
+python3 fasttext_model.py 'runmodel' --dimU=50 --minnU=2 --maxnU=6 --epochU=2 --lrU=0.07 --epochS=38 --lrS=0.09 --wordNgramsS=2
 ```
 
 Run Bert model with best achieved hyperparameter values:
 ```
-python bert_model.py 'runmodel' --train_batch_size=32 --learning_rate=4 --num_train_epochs=4 --max_seq_length=5
+python3 bert_model.py 'runmodel' --train_batch_size=32 --learning_rate=4 --num_train_epochs=4 --max_seq_length=5
 ```
 
 
