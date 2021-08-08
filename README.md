@@ -236,7 +236,7 @@ $ python3 tfidf_models.py 'RandomForestClassifier' 'runmodel' --max_df=0.95 --mi
 
 Run Multinomial Naive Bayes model with best achieved hyperparamater values:
 ```
-$ python3 tfidf_models.py 'MultinomialNB' 'runmodel' --max_df=0.85 --min_df=0.001 --alpha=0.5 --fit_prior=False
+$ python3 tfidf_models.py 'MultinomialNB' 'runmodel' --max_df=0.85 --min_df=0.001 --alpha=0.5 --fit_prior
 
 ```
 
